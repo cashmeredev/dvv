@@ -1,8 +1,9 @@
 CC			= clang
-VENDOR      = -isystem vendor -DEPOLL -D_DEFAULT_SOURCE
+VENDOR      = -isystem vendor -DEPOLL -D_DEFAULT_SOURCE -Itemplates
 CFLAGS		= -Wall -Wextra -O2 -Wpedantic -Wshadow -Wconversion -Wformat=2 -Wvla -std=c99 -Werror
 DBGFLAGS	= -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer
 SRC			= src/main.c
+TPL			= $(patsubst %.tt,%,$(wildcard templates/*.h.tt))
 HDR			= $(wildcard src/*.h vendor/*.h)
 BIN			= build/main
 
@@ -34,3 +35,10 @@ valgrind: $(BIN)-dbg
 
 clean:
 	rm -f $(BIN) $(BIN)-asan $(BIN)-dbg src/*.o
+
+build/tt: vendor/tt.c vendor/s.h vendor/memory.h
+	mkdir -p build
+	$(CC) -Wall -Wextra -std=c11 vendor/tt.c -o $@
+
+templates/%.h: templates/%.h.tt build/tt
+	./build/tt $< > $@
