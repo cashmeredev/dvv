@@ -1,5 +1,5 @@
 CC			= clang
-VENDOR      = -Ivendor
+VENDOR      = -isystem vendor -DEPOLL -D_DEFAULT_SOURCE
 CFLAGS		= -Wall -Wextra -O2 -Wpedantic -Wshadow -Wconversion -Wformat=2 -Wvla -std=c99 -Werror
 DBGFLAGS	= -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer
 SRC			= src/main.c
