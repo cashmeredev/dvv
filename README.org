@@ -1,0 +1,10 @@
+#+TITLE: DON'T VOUCH VERIFY
+
+* TODO Description
+
+* TODO Setup
+
+* References
+
+[[https://github.com/jedisct1/minisign#additional-tools-libraries-and-implementations][minisign]]
+[[https://github.com/jeremycw/httpserver.h][httpserver.h]]
