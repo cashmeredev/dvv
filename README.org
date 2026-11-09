@@ -8,3 +8,4 @@
 
 [[https://github.com/jedisct1/minisign#additional-tools-libraries-and-implementations][minisign]]
 [[https://github.com/jeremycw/httpserver.h][httpserver.h]]
+[[https://github.com/tsoding/skedudle/blob/master/src/tt.c][tt.c (templ like templating engine in c)]]
