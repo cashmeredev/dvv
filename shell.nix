@@ -7,6 +7,7 @@ pkgs.mkShell {
 
   packages = [
     pkgs.minisign
+    pkgs.clang
   ];
 
   nativeBuildInputs = [ ];
