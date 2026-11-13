@@ -4,8 +4,26 @@
 #include "httpserver.h"
 #include "string.h"
 #include "template.h"
+#include <stdbool.h>
 
-void respond(struct http_request_s *request, int status, struct Page page)
+
+static bool matches(struct http_string_s received, const char *expected)
+{
+  size_t expected_length = strlen(expected);
+
+  if ((size_t)received.len != expected_length)
+    {
+      return false;
+    }
+
+  if(memcmp(received.buf, expected, expected_length) != 0)
+    {
+      return false;
+    }
+  return true;
+}
+
+static void respond(struct http_request_s *request, int status, struct Page page)
 {
   struct http_response_s *response = http_response_init();
   http_response_status(response, status);
@@ -18,13 +36,11 @@ void respond(struct http_request_s *request, int status, struct Page page)
 void handle_request(struct http_request_s *request)
 {
 
-  /* debug http method and target */
+  /* get http method and target */
   struct http_string_s method = http_request_method(request);
   struct http_string_s target = http_request_target(request);
 
-  // TODO: add simple request and handle fn
-  if (method.len == 3 && memcmp(method.buf, "GET", 3) == 0 &&
-      target.len == 1 && memcmp(target.buf, "/", 1) == 0)
+  if (matches(method, "GET") && matches(target, "/"))
     {
       struct Page index = render_index("Don't vouch, VERIFY!");
       respond(request, 200, index);
