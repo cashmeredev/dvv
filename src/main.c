@@ -5,41 +5,14 @@
 #include "string.h"
 #include "template.h"
 
-struct Template {
-  char *body;
-  size_t template_size;
-  int code;
-};
-
-struct Template make_template_index(void)
+void respond(struct http_request_s *request, int status, struct Page page)
 {
-  struct Template template;
-  template.code = 200;
-
-  FILE *OUT = open_memstream(&template.body, &template.template_size);
-#define write(out, data, n) fwrite(data, 1, n, out)
-#define INT(x) fprintf(OUT, "%d", template.code);
-#include "error_page_template.h"
-#undef INT
-#undef write
-fclose(OUT);
-return template;
-}
-
-struct Template make_template(void)
-{
-  /* build error page template template */
-  struct Template template;
-  template.code = 404;
-
-  FILE *OUT = open_memstream(&template.body, &template.template_size);
-#define write(out, data, n) fwrite(data, 1, n, out)
-#define INT(x) fprintf(OUT, "%d", template.code);
-#include "error_page_template.h"
-#undef INT
-#undef write
-fclose(OUT);
-return template;
+  struct http_response_s *response = http_response_init();
+  http_response_status(response, status);
+  http_response_header(response, "Content-Type", "text/html; charset=utf-8");
+  http_response_body(response, page.body, (int)page.size);
+  http_respond(request, response);
+  free(page.body);
 }
 
 void handle_request(struct http_request_s *request)
@@ -53,25 +26,14 @@ void handle_request(struct http_request_s *request)
   if (method.len == 3 && memcmp(method.buf, "GET", 3) == 0 &&
       target.len == 1 && memcmp(target.buf, "/", 1) == 0)
     {
-      struct Template index_template = make_template_index();
-      struct http_response_s *response = http_response_init();
-
-      http_response_status(response, index_template.code);
-      http_response_header(response, "Content-Type", "text/html; charset=utf-8");
-      http_response_body(response, index_template.body, (int)index_template.template_size);
-      http_respond(request, response);
-      free(index_template.body);
+      struct Page index = render_index("Don't vouch, VERIFY!");
+      respond(request, 200, index);
     }
   else
     {
       /* respond with 404 not found for any other page */
-      struct Template template = make_template();
-      struct http_response_s *response = http_response_init();
-      http_response_status(response, template.code);
-      http_response_header(response, "Content-Type", "text/html; charset=utf-8");
-      http_response_body(response, template.body, (int)template.template_size);
-      http_respond(request, response);
-      free(template.body);
+      struct Page not_found = render_error(404);
+      respond(request, 404, not_found);
     }
 
 }
