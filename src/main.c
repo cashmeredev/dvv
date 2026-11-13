@@ -3,6 +3,7 @@
 #define HTTPSERVER_IMPL
 #include "httpserver.h"
 #include "string.h"
+#include "template.h"
 
 struct Template {
   char *body;

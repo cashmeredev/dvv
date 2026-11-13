@@ -12,21 +12,21 @@ BIN			= build/main
 run: $(BIN)
 	./$(BIN)
 
-$(BIN): $(SRC) $(HDR) Makefile
+$(BIN): $(SRC) $(HDR) $(TPL) Makefile
 	mkdir -p build
 	$(CC) $(CFLAGS) $(VENDOR) $(SRC) -o $@
 
-check:
+check: $(TPL)
 	clang-tidy --header-filter='src/.*' $(SRC) -- -Wall -Wextra $(VENDOR)
 
-$(BIN)-asan: $(SRC) $(HDR) Makefile
+$(BIN)-asan: $(SRC) $(HDR) $(TPL) Makefile
 	mkdir -p build
 	$(CC) $(DBGFLAGS) $(VENDOR) $(SRC) -o $@
 
 asan: $(BIN)-asan
 	./$(BIN)-asan
 
-$(BIN)-dbg: $(SRC) $(HDR) Makefile
+$(BIN)-dbg: $(SRC) $(HDR) $(TPL) Makefile
 	mkdir -p build
 	$(CC) -Wall -Wextra -g -O0 $(VENDOR) $(SRC) -o $@
 
@@ -34,7 +34,7 @@ valgrind: $(BIN)-dbg
 	valgrind --track-fds=yes ./$(BIN)-dbg
 
 clean:
-	rm -f $(BIN) $(BIN)-asan $(BIN)-dbg src/*.o
+	rm -f $(BIN) $(BIN)-asan $(BIN)-dbg build/tt $(TPL) src/*.o
 
 build/tt: vendor/tt.c vendor/s.h vendor/memory.h
 	mkdir -p build
