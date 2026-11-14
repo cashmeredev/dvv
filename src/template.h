@@ -39,6 +39,18 @@ static struct Page render_index(const char *title)
   TEMPLATE_END
 }
 
+static struct Page render_user(
+  const char *username,
+  const char *description,
+  const char **projects,
+  size_t project_count
+)
+{
+  TEMPLATE_BEGIN
+#include "user_template.h"
+  TEMPLATE_END
+}
+
 #undef TEMPLATE_BEGIN
 #undef TEMPLATE_END
 #undef STR

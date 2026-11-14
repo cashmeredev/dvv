@@ -28,6 +28,7 @@ static void respond(struct http_request_s *request, int status, struct Page page
   struct http_response_s *response = http_response_init();
   http_response_status(response, status);
   http_response_header(response, "Content-Type", "text/html; charset=utf-8");
+  http_response_header(response, "Cache-Control", "no-store");
   http_response_body(response, page.body, (int)page.size);
   http_respond(request, response);
   free(page.body);
@@ -44,6 +45,14 @@ void handle_request(struct http_request_s *request)
     {
       struct Page index = render_index("Don't vouch, VERIFY!");
       respond(request, 200, index);
+    }
+
+  // TODO: make user handler generic
+  if (matches(method, "GET") && matches(target, "/@cashmere"))
+    {
+      const char *projects[] = {"Project 1", "Project 2"};
+      struct Page user = render_user( "cashmere", "Hello, Sailor!", projects, 2);
+      respond(request, 200, user);
     }
   else
     {

@@ -17,7 +17,7 @@ $(BIN): $(SRC) $(HDR) $(TPL) Makefile
 	$(CC) $(CFLAGS) $(VENDOR) $(SRC) -o $@
 
 check: $(TPL)
-	clang-tidy --header-filter='src/.*' $(SRC) -- -Wall -Wextra $(VENDOR)
+	clang-tidy --header-filter='src/.*' $(SRC) -- -Wpedantic -Wall -Wextra $(VENDOR)
 
 $(BIN)-asan: $(SRC) $(HDR) $(TPL) Makefile
 	mkdir -p build
