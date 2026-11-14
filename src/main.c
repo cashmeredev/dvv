@@ -5,7 +5,20 @@
 #include "string.h"
 #include "template.h"
 #include <stdbool.h>
+#include "sign.h"
 
+// NOTE: this function is a helper to print private and public key.
+// FIXME: remove or disable when dvv is used in prod
+static void print_hex(const char *label, const uint8_t *bytes, size_t length)
+{
+  printf("%s: ", label);
+  for (size_t index = 0; index < length; index++)
+    {
+      printf("%02x", bytes[index]);
+    }
+  printf("\n");
+  fflush(stdout);
+}
 
 static bool matches(struct http_string_s received, const char *expected)
 {
@@ -53,6 +66,17 @@ void handle_request(struct http_request_s *request)
       const char *projects[] = {"Project 1", "Project 2"};
       struct Page user = render_user( "cashmere", "Hello, Sailor!", projects, 2);
       respond(request, 200, user);
+
+      // FIXME: change to secure way to generate and store secret/public key
+      uint8_t secret_key[64];
+      uint8_t public_key[32];
+      if (!generate_keys(secret_key, public_key))
+        {
+          printf("failed to generate keys\n");
+          fflush(stdout);
+        }
+      print_hex("public_key", public_key, sizeof(public_key));
+      print_hex("secret_key", secret_key, sizeof(secret_key));
     }
   else
     {
