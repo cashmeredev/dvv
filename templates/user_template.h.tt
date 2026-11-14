@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>@%STR(username)%</title>
+  </head>
+  <body>
+     <h1>@%STR(username)%</h1>
+     <p>%STR(description)%</p>
+     <h2>Projects</h2>
+     <ul>
+%for (size_t index = 0; index < project_count; index++) {%
+       <li>%STR(projects[index])%</li>
+%}%
+     </ul>
+  </body>
+</html>
