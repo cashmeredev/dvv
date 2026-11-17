@@ -1,0 +1,1551 @@
+// ### BEGIN_FILE_INCLUDE: csview.h
+// csview is a non-zero-terminated string view.
+
+#ifndef STC_CSVIEW_H_INCLUDED
+#define STC_CSVIEW_H_INCLUDED
+// ### BEGIN_FILE_INCLUDE: csviewz.h
+
+// csviewz is a zero-terminated string view.
+
+#ifndef STC_CSVIEWZ_H_INCLUDED
+#define STC_CSVIEWZ_H_INCLUDED
+
+// ### BEGIN_FILE_INCLUDE: common.h
+#ifndef STC_COMMON_H_INCLUDED
+#define STC_COMMON_H_INCLUDED
+
+#ifdef _MSC_VER
+    #pragma warning(disable: 4116 4996) // unnamed type definition in parentheses
+#endif
+#include <inttypes.h>
+#include <stddef.h>
+#include <stdbool.h>
+#include <string.h>
+#include <assert.h>
+
+#ifndef ISIZE_MAX
+    typedef ptrdiff_t   isize_t;
+    #define ISIZE_MIN   PTRDIFF_MIN
+    #define ISIZE_MAX   PTRDIFF_MAX
+#endif
+#if defined __GNUC__ || defined __clang__ || defined __TINYC__ || \
+    defined __cplusplus || _MSC_FULL_VER >= 193933428
+    #define STC_HAS_TYPEOF
+#endif
+#if defined __GNUC__
+  #define c_GNUATTR(...) __attribute__((__VA_ARGS__))
+#else
+  #define c_GNUATTR(...)
+#endif
+#define STC_INLINE static inline c_GNUATTR(unused)
+
+#define c_ZI PRIiPTR
+#define c_ZU PRIuPTR
+#define c_NPOS INTPTR_MAX
+
+// Macro overloading feature support
+#define c_MACRO_OVERLOAD(name, ...) \
+    c_JOIN(name ## _,c_NUMARGS(__VA_ARGS__))(__VA_ARGS__)
+#define c_JOIN0(a, b) a ## b
+#define c_JOIN(a, b) c_JOIN0(a, b)
+#define c_NUMARGS(...) _c_APPLY_ARG_N((__VA_ARGS__, _c_RSEQ_N))
+#define _c_APPLY_ARG_N(args) _c_ARG_N args
+#define _c_RSEQ_N 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
+#define _c_ARG_N(_1,_2,_3,_4,_5,_6,_7,_8,_9,_10,_11,_12,_13,_14,_15,_16,_17,_18,_19,_20,N,...) N
+
+// Saturated overloading
+// #define foo(...) foo_I(__VA_ARGS__, c_COMMA_N(foo_3), c_COMMA_N(foo_2), c_COMMA_N(foo_1),)(__VA_ARGS__)
+// #define foo_I(a,b,c, n, ...) c_TUPLE_AT_1(n, foo_n,)
+#define c_TUPLE_AT_1(x,y,...) y
+#define c_COMMA_N(x) ,x
+#define c_EXPAND(...) __VA_ARGS__
+
+// Select arg, e.g. for #define i_type A,B then c_GETARG(2, i_type) is B
+#define c_GETARG(N, ...) c_ARG_##N(__VA_ARGS__,)
+#define c_ARG_1(a, ...) a
+#define c_ARG_2(a, b, ...) b
+#define c_ARG_3(a, b, c, ...) c
+#define c_ARG_4(a, b, c, d, ...) d
+
+#define _i_new_n(T, n) ((T*)i_malloc((n)*c_sizeof(T)))
+#define _i_realloc_n(ptr, old_n, n) i_realloc((ptr), (old_n)*c_sizeof *(ptr), (n)*c_sizeof *(ptr))
+#define _i_free_n(ptr, n) i_free((ptr), (n)*c_sizeof *(ptr))
+
+#ifndef __cplusplus
+    #define c_new(T, ...) ((T*)c_safe_memcpy(c_malloc(c_sizeof(T)), ((T[]){__VA_ARGS__}), c_sizeof(T)))
+    #define c_literal(T) (T)
+    #define c_literal_count(T, ...) (sizeof((T[])__VA_ARGS__) / sizeof(T))
+    #define c_make_array(T, ...) ((T[])__VA_ARGS__)
+    #define c_make_array2d(T, N, ...) ((T[][N])__VA_ARGS__)
+    #define c_const_arr_ref(T, name) T const* name
+    #define STC_EXTERN extern
+    #define c_typeof(x) __typeof__(x)
+    #define c_static_assert(expr)   (void)sizeof(int[(expr) ? 1 : -1])
+    #define c_safe_cast(T, From, x) ((T)(1 ? (x) : (From){0}))
+#else // C++
+    #include <new>
+    #include <array>
+    #include <initializer_list>
+    #define c_new(T, ...) new (c_malloc(c_sizeof(T))) T(__VA_ARGS__)
+    template <typename _Ty> struct _ArgType { using type = _Ty; };
+    #define c_literal(T) _ArgType<T>::type
+    #define c_literal_count(T, ...) std::initializer_list<T>__VA_ARGS__.size()
+    template <typename _Ty, int _M, int _N> struct _c_Array { _Ty data[_M][_N]; };
+    #define c_make_array(T, ...) _c_Array<T, 1, c_literal_count(T, __VA_ARGS__)>{{__VA_ARGS__}}.data[0]
+    #define c_make_array2d(T, N, ...) _c_Array<T, c_literal_count(T[N], __VA_ARGS__), N>{__VA_ARGS__}.data
+    #define c_const_arr_ref(T, name) T const (&name)[]
+    #define STC_EXTERN extern "C"
+    #define c_typeof(x) std::remove_reference_t<decltype((x))>
+    #define c_static_assert(expr) (void)0
+    #define c_safe_cast(T, From, x) reinterpret_cast<T>(static_cast<From>(x))
+#endif
+
+#ifdef STC_ALLOCATOR
+    #define c_malloc(sz) c_JOIN(STC_ALLOCATOR, _malloc)(sz)
+    #define c_calloc(n, sz) c_JOIN(STC_ALLOCATOR, _calloc)(n, sz) // Not required, not used by STC
+    #define c_realloc(p, old_sz, sz) c_JOIN(STC_ALLOCATOR, _realloc)(p, old_sz, sz)
+    #define c_free(p, sz) c_JOIN(STC_ALLOCATOR, _free)(p, sz)
+#else
+    #define c_malloc(sz) malloc(c_i2u_cast(sz))
+    #define c_calloc(n, sz) calloc(c_i2u_cast(n), c_i2u_cast(sz))
+    #define c_realloc(ptr, old_sz, sz) realloc(ptr, c_i2u_cast(1 ? (sz) : (old_sz)))
+    #define c_free(ptr, sz) ((void)(sz), free(ptr))
+#endif
+
+#define c_new_n(T, n) ((T*)c_malloc((n)*c_sizeof(T)))
+#define c_free_n(ptr, n) c_free(ptr, (n)*c_sizeof *(ptr))
+#define c_free_obj(ptr) c_free_n(ptr, 1)
+#define c_realloc_n(ptr, old_n, n) c_realloc(ptr, (old_n)*c_sizeof *(ptr), (n)*c_sizeof *(ptr))
+#define c_delete_n(T, ptr, n) do { \
+    T* _tp = ptr; isize_t _n = n, _i = _n; \
+    while (_i--) T##_drop((_tp + _i)); \
+    c_free(_tp, _n*c_sizeof(T)); \
+} while (0)
+
+#if defined STC_NDEBUG || defined NDEBUG
+    #define c_assert(expr)      (void)sizeof(expr)
+#else
+    #define c_assert(expr)      assert(expr)
+#endif
+#define c_container_of(p, C, m) ((C*)((char*)(1 ? (p) : &((C*)0)->m) - offsetof(C, m)))
+#define c_countof(a)            (isize_t)(sizeof(a)/sizeof 0[a])
+#define c_as_mut(Tp, p)         ((Tp)(1 ? (p) : (Tp)0))
+
+// expect signed ints to/from these (use with gcc -Wconversion)
+#define c_sizeof                (isize_t)sizeof
+#define c_strlen(s)             (isize_t)strlen(s)
+#define c_strncmp(a, b, ilen)   strncmp(a, b, c_i2u_cast(ilen))
+#define c_memcpy(d, s, ilen)    memcpy(d, s, c_i2u_cast(ilen))
+#define c_memmove(d, s, ilen)   memmove(d, s, c_i2u_cast(ilen))
+#define c_memset(d, val, ilen)  memset(d, val, c_i2u_cast(ilen))
+#define c_memcmp(a, b, ilen)    memcmp(a, b, c_i2u_cast(ilen))
+// library internal, but may be useful in user code:
+#define c_u2i_cast(u)           (isize_t)(1 ? (u) : (size_t)1) // warns if u is signed
+#define c_i2u_cast(i)           (size_t)(1 ? (i) : -1)         // warns if i is unsigned
+#define c_uless(a, b)           ((size_t)(a) < (size_t)(b))
+#define c_litstrlen(literal)    (c_sizeof("" literal) - 1)
+
+// x, y are i_keyraw* type, which defaults to i_key*. vp is i_key* type.
+#define c_memcmp_eq(x, y)       (memcmp(x, y, sizeof *(x)) == 0)
+#define c_default_eq(x, y)      (*(x) == *(y))
+#define c_default_less(x, y)    (*(x) < *(y))
+#define c_default_cmp(x, y)     (c_default_less(y, x) - c_default_less(x, y))
+#define c_default_hash(vp)      c_hash_n(vp, sizeof *(vp))
+#define c_default_clone(v)      (v)
+#define c_default_toraw(vp)     (*(vp))
+#define c_default_drop(vp)      ((void) (vp))
+
+#define c_newtype(name, ValType) typedef struct { ValType val; } name
+
+// Control block macros
+
+// [deprecated]:
+#define c_init(...) c_make(__VA_ARGS__)
+#define c_arraylen(a) c_countof(a)
+#define c_const_cast(Tp, p) c_as_mut(Tp, p)
+// End [deprecated]
+
+// New:
+#define c_each(...) c_MACRO_OVERLOAD(c_each, __VA_ARGS__)
+#define c_each_3(it, C, cnt) \
+    C##_iter it = C##_begin(&cnt); it.ref; C##_next(&it)
+#define c_each_4(it, C, start, end) \
+    _c_each(it, C, start, (end).ref, _)
+
+#define c_each_ref(v, C, cnt) \
+    C##_value *v, **v##_r_ = &v; v##_r_; v##_r_ = NULL) \
+    for (C##_iter v##_itr_ = C##_begin(&cnt); (v = v##_itr_.ref); C##_next(&v##_itr_)
+
+#define c_each_n(...) c_MACRO_OVERLOAD(c_each_n, __VA_ARGS__)
+#define c_each_n_3(it, C, cnt) c_each_n_4(it, C, cnt, INTPTR_MAX)
+#define c_each_n_4(it, C, cnt, n) \
+    struct {C##_iter iter; C##_value* ref; isize_t size, index;} \
+    it = {.iter=C##_begin(&cnt), .size=n}; (it.ref = it.iter.ref) && it.index < it.size; C##_next(&it.iter), ++it.index
+
+#define c_each_reverse(...) c_MACRO_OVERLOAD(c_each_reverse, __VA_ARGS__)
+#define c_each_reverse_3(it, C, cnt) /* works for stack, vec, queue, deque */ \
+    C##_iter it = C##_rbegin(&cnt); it.ref; C##_rnext(&it)
+#define c_each_reverse_4(it, C, start, end) \
+    _c_each(it, C, start, (end).ref, _r)
+
+#define _c_each(it, C, start, endref, rev) /* private */ \
+    C##_iter it = (start), *_endref_##it = c_safe_cast(C##_iter*, C##_value*, endref) \
+         ; it.ref != (C##_value*)_endref_##it; C##rev##next(&it)
+
+#define c_each_kv(...) c_MACRO_OVERLOAD(c_each_kv, __VA_ARGS__)
+#define c_each_kv_4(key, val, C, cnt) /* structured binding for maps */ \
+    _c_each_kv(key, val, C, C##_begin(&cnt), NULL)
+#define c_each_kv_5(key, val, C, start, end) \
+    _c_each_kv(key, val, C, start, (end).ref)
+
+#define _c_each_kv(key, val, C, start, endref) /* private */ \
+    const C##_key *key, **key##_r_ = &key; key##_r_; ) \
+    for (C##_mapped *val; key##_r_; key##_r_ = NULL) \
+    for (C##_iter _it_##key = start, *_endref_##key = c_safe_cast(C##_iter*, C##_value*, endref); \
+         _it_##key.ref != (C##_value*)_endref_##key && (key = &_it_##key.ref->first, val = &_it_##key.ref->second); \
+         C##_next(&_it_##key)
+
+#define c_each_item(it, T, ...) \
+    struct { c_const_arr_ref(T, _ref); T* ref; int size, index; } \
+    it = {._ref=c_make_array(T, __VA_ARGS__), .ref = (T*)it._ref, .size=(int)c_literal_count(T, __VA_ARGS__)} \
+    ; it.index < it.size ; ++it.ref, ++it.index
+
+// c_range, c_range32: python-like int range iteration
+#define c_range_t(...) c_MACRO_OVERLOAD(c_range_t, __VA_ARGS__)
+#define c_range_t_3(T, i, stop) c_range_t_4(T, i, 0, stop)
+#define c_range_t_4(T, i, start, stop) \
+    T i=start, _c_end_##i=stop; i < _c_end_##i; ++i
+#define c_range_t_5(T, i, start, stop, step) \
+    T i=start, _c_inc_##i=step, _c_end_##i=(stop) - (_c_inc_##i > 0) \
+    ; (_c_inc_##i > 0) == (i <= _c_end_##i) ; i += _c_inc_##i
+
+#define c_range(...) c_MACRO_OVERLOAD(c_range, __VA_ARGS__)
+#define c_range_1(stop) c_range_t_4(isize_t, _c_i1, 0, stop)
+#define c_range_2(i, stop) c_range_t_4(isize_t, i, 0, stop)
+#define c_range_3(i, start, stop) c_range_t_4(isize_t, i, start, stop)
+#define c_range_4(i, start, stop, step) c_range_t_5(isize_t, i, start, stop, step)
+
+#define c_range32(...) c_MACRO_OVERLOAD(c_range32, __VA_ARGS__)
+#define c_range32_2(i, stop) c_range_t_4(int32_t, i, 0, stop)
+#define c_range32_3(i, start, stop) c_range_t_4(int32_t, i, start, stop)
+#define c_range32_4(i, start, stop, step) c_range_t_5(int32_t, i, start, stop, step)
+
+// make container from a literal list
+#define c_make(C, ...) \
+    C##_from_n(c_make_array(C##_raw, __VA_ARGS__), c_literal_count(C##_raw, __VA_ARGS__))
+
+// put multiple raw-type elements from a literal list into a container
+#define c_put_items(C, cnt, ...) \
+    C##_put_n(cnt, c_make_array(C##_raw, __VA_ARGS__), c_literal_count(C##_raw, __VA_ARGS__))
+
+// drop multiple containers of same type
+#define c_drop(C, ...) \
+    do { for (c_each_item(_c_i2, C*, {__VA_ARGS__})) C##_drop(*_c_i2.ref); } while(0)
+
+// RAII scopes
+#define c_defer(...) \
+    for (int _c_i3 = 0; _c_i3++ == 0; __VA_ARGS__)
+
+#define c_with(...) c_MACRO_OVERLOAD(c_with, __VA_ARGS__)
+#define c_with_2(init, deinit) \
+    for (int _c_i4 = 0; _c_i4 == 0; ) for (init; _c_i4++ == 0; deinit)
+#define c_with_3(init, condition, deinit) \
+    for (int _c_i5 = 0; _c_i5 == 0; ) for (init; _c_i5++ == 0 && (condition); deinit)
+
+// General functions
+
+STC_INLINE void* c_safe_memcpy(void* dst, const void* src, isize_t size)
+    { return dst ? memcpy(dst, src, (size_t)size) : NULL; }
+
+#if INTPTR_MAX == INT64_MAX
+    #define FNV_BASIS 0xcbf29ce484222325
+    #define FNV_PRIME 0x00000100000001b3
+#else
+    #define FNV_BASIS 0x811c9dc5
+    #define FNV_PRIME 0x01000193
+#endif
+
+STC_INLINE size_t c_basehash_n(const void* key, isize_t len) {
+    const uint8_t* msg = (const uint8_t*)key;
+    size_t h = FNV_BASIS, block = 0;
+
+    while (len >= c_sizeof h) {
+        memcpy(&block, msg, sizeof h);
+        h ^= block;
+        h *= FNV_PRIME;
+        msg += c_sizeof h;
+        len -= c_sizeof h;
+    }
+    while (len--) {
+        h ^= *(msg++);
+        h *= FNV_PRIME;
+    }
+    return h;
+}
+
+STC_INLINE size_t c_hash_n(const void* key, isize_t len) {
+    uint64_t b8; uint32_t b4;
+    switch (len) {
+        case 8: memcpy(&b8, key, 8); return (size_t)(b8 * 0xc6a4a7935bd1e99d);
+        case 4: memcpy(&b4, key, 4); return b4 * FNV_BASIS;
+        default: return c_basehash_n(key, len);
+    }
+}
+
+STC_INLINE size_t c_hash_str(const char *str) {
+    const uint8_t* msg = (const uint8_t*)str;
+    size_t h = FNV_BASIS;
+    while (*msg) {
+        h ^= *(msg++);
+        h *= FNV_PRIME;
+    }
+    return h;
+}
+
+#define c_hash_mix(...) /* non-commutative hash combine */ \
+    c_hash_mix_n(c_make_array(size_t, {__VA_ARGS__}), c_literal_count(size_t, {__VA_ARGS__}))
+
+STC_INLINE size_t c_hash_mix_n(size_t h[], isize_t n) {
+    for (isize_t i = 1; i < n; ++i) h[0] += h[0] ^ h[i];
+    return h[0];
+}
+
+// generic typesafe swap
+#ifdef STC_HAS_TYPEOF
+#define c_swap(xp, yp) do { \
+    c_typeof(xp) _xp = (xp), _yp = (yp); \
+    c_typeof(0[xp]) _tv = *_xp; *_xp = *_yp; *_yp = _tv; \
+} while (0)
+#else
+#define c_swap(xp, yp) do { \
+    (void)sizeof((xp) == (yp)); \
+    char _tv[sizeof *(xp)]; \
+    void *_xp = xp, *_yp = yp; \
+    memcpy(_tv, _xp, sizeof _tv); \
+    memcpy(_xp, _yp, sizeof _tv); \
+    memcpy(_yp, _tv, sizeof _tv); \
+} while (0)
+#endif
+
+// get next power of two >= n
+STC_INLINE isize_t c_next_pow2(isize_t n) {
+    n--;
+    n |= n >> 1, n |= n >> 2;
+    n |= n >> 4, n |= n >> 8;
+    n |= n >> 16;
+    #if INTPTR_MAX == INT64_MAX
+    n |= n >> 32;
+    #endif
+    return n + 1;
+}
+
+STC_INLINE char* c_strnstrn(const char *str, isize_t slen, const char *needle, isize_t nlen) {
+    if (nlen == 0) return (char *)str;
+    if (nlen > slen) return NULL;
+    slen -= nlen;
+    do {
+        if (*str == *needle && !c_memcmp(str, needle, nlen))
+            return (char *)str;
+        ++str;
+    } while (slen--);
+    return NULL;
+}
+#endif // STC_COMMON_H_INCLUDED
+// ### END_FILE_INCLUDE: common.h
+// ### BEGIN_FILE_INCLUDE: types.h
+
+#ifndef STC_TYPES_H_INCLUDED
+#define STC_TYPES_H_INCLUDED
+
+#include <stdint.h>
+#include <stddef.h>
+#include <stdbool.h>
+
+#define c_true(...) __VA_ARGS__
+#define c_false(...)
+
+#define c_declare_rc(C, KEY) c_declare_arc(C, KEY)
+#define c_declare_rc2(SELF, VAL) c_declare_arc2(SELF, VAL)
+#define c_declare_list(C, KEY) _declare_list(C, KEY,)
+#define c_declare_stack(C, KEY) _declare_stack(C, KEY,)
+#define c_declare_vec(C, KEY) _declare_stack(C, KEY,)
+#define c_declare_pqueue(C, KEY) _declare_stack(C, KEY,)
+#define c_declare_queue(C, KEY) _declare_queue(C, KEY,)
+#define c_declare_deque(C, KEY) _declare_queue(C, KEY,)
+#define c_declare_hashmap(C, KEY, VAL) _declare_htable(C, c_true, c_false, KEY, VAL,)
+#define c_declare_hashset(C, KEY) _declare_htable(C, c_false, c_true, KEY, KEY,)
+#define c_declare_sortedmap(C, KEY, VAL) _declare_aatree(C, c_true, c_false, KEY, VAL,)
+#define c_declare_sortedset(C, KEY) _declare_aatree(C, c_false, c_true, KEY, KEY,)
+
+#define c_declare_list_aux(C, KEY, AUX) _declare_list(C, KEY, AUX aux;)
+#define c_declare_stack_aux(C, KEY, AUX) _declare_stack(C, KEY, AUX aux;)
+#define c_declare_vec_aux(C, KEY, AUX) _declare_stack(C, KEY, AUX aux;)
+#define c_declare_pqueue_aux(C, KEY, AUX) _declare_stack(C, KEY, AUX aux;)
+#define c_declare_queue_aux(C, KEY, AUX) _declare_queue(C, KEY, AUX aux;)
+#define c_declare_deque_aux(C, KEY, AUX) _declare_queue(C, KEY, AUX aux;)
+#define c_declare_hashmap_aux(C, KEY, VAL) _declare_htable(C, c_true, c_false, KEY, VAL, AUX aux;)
+#define c_declare_hashset_aux(C, KEY) _declare_htable(C, c_false, c_true, KEY, KEY, AUX aux;)
+#define c_declare_sortedmap_aux(C, KEY, VAL) _declare_aatree(C, c_true, c_false, KEY, VAL, AUX aux;)
+#define c_declare_sortedset_aux(C, KEY) _declare_aatree(C, c_false, c_true, KEY, KEY, AUX aux;)
+
+typedef struct { uint32_t state, codep; } cutf8_decode_t;
+
+// csview : string view, non-zero terminated
+typedef const char csview_value;
+typedef struct csview {
+    csview_value* buf;
+    ptrdiff_t size;
+} csview;
+
+typedef union {
+    struct { csview chr; csview_value* end; cutf8_decode_t dec; } u8;
+    csview chr;
+    csview_value* ref;
+} csview_iter;
+
+#define c_sv(...) c_MACRO_OVERLOAD(c_sv, __VA_ARGS__)
+#define c_sv_1(STRLIT) c_sv_2(STRLIT, c_litstrlen(STRLIT))
+#define c_sv_2(str, n) (c_literal(csview){str, n})
+#define c_svfmt "%.*s"
+#define c_svarg(sv) (int)(sv).size, (sv).buf // printf(c_svfmt "\n", c_svarg(sv));
+
+// csviewz : string view, zero-terminated
+typedef csview_value csviewz_value;
+typedef struct csviewz {
+    csviewz_value* str;
+    ptrdiff_t size;
+} csviewz;
+
+typedef union {
+    struct { csview chr; cutf8_decode_t dec; } u8;
+    csview chr;
+    csviewz_value* ref;
+} csviewz_iter;
+
+#define c_zv(literal) (c_literal(csviewz){literal, c_litstrlen(literal)})
+
+typedef csviewz zsview;             // [deprecated]
+typedef csviewz_value zsview_value; // [deprecated]
+typedef csviewz_iter zsview_iter;   // [deprecated]
+
+// cstr : zero-terminated owning string (short string optimized - sso)
+typedef char cstr_value;
+typedef struct { cstr_value* data; intptr_t size, cap; } cstr_buf;
+typedef union cstr {
+    struct { cstr_value data[ sizeof(cstr_buf) - 1 ]; uint8_t size; } sml;
+    struct { cstr_value* data; uintptr_t size; uintptr_t ncap; } lon;
+} cstr;
+
+typedef union {
+    struct { csview chr; cutf8_decode_t dec; } u8;
+    csview chr; // utf8 character/codepoint
+    const cstr_value* ref;
+} cstr_iter;
+
+// non-owning char pointer
+typedef const char* cstr_raw;
+#define cstr_raw_cmp(x, y) strcmp(*(x), *(y))
+#define cstr_raw_eq(x, y)  (cstr_raw_cmp(x, y) == 0)
+#define cstr_raw_hash(vp)  c_hash_str(*(vp))
+
+
+#define c_declare_arc(SELF, VAL) \
+    typedef VAL SELF##_value; \
+    typedef struct SELF##_ctrl SELF##_ctrl; \
+\
+    typedef union SELF { \
+        SELF##_value* get; \
+        SELF##_ctrl* ctrl; \
+    } SELF
+
+#define c_declare_arc2(SELF, VAL) \
+    typedef VAL SELF##_value; \
+    typedef struct SELF##_ctrl SELF##_ctrl; \
+\
+    typedef struct SELF { \
+        SELF##_value* get; \
+        SELF##_ctrl* ctrl2; \
+    } SELF
+
+#define c_declare_box(SELF, VAL) \
+    typedef VAL SELF##_value; \
+\
+    typedef struct SELF { \
+        SELF##_value* get; \
+    } SELF
+
+#define _declare_queue(SELF, VAL, AUXDEF) \
+    typedef VAL SELF##_value; \
+\
+    typedef struct SELF { \
+        SELF##_value *cbuf; \
+        ptrdiff_t start, end, capmask; \
+        AUXDEF \
+    } SELF; \
+\
+    typedef struct SELF##_iter { \
+        SELF##_value *ref; \
+        ptrdiff_t pos; \
+        const SELF* _s; \
+    } SELF##_iter
+
+#define _declare_inplace_queue(SELF, VAL, CAP, AUXDEF) \
+    typedef VAL SELF##_value; \
+    typedef struct SELF { ptrdiff_t start, end; SELF##_value cbuf[CAP]; AUXDEF } SELF; \
+    typedef struct SELF##_iter { SELF##_value *ref; ptrdiff_t pos; const SELF* _s; } SELF##_iter
+
+#define _declare_list(SELF, VAL, AUXDEF) \
+    typedef VAL SELF##_value; \
+    typedef struct SELF##_node SELF##_node; \
+\
+    typedef struct SELF##_iter { \
+        SELF##_value *ref; \
+        SELF##_node *const *_last, *prev; \
+    } SELF##_iter; \
+\
+    typedef struct SELF { \
+        SELF##_node *last; \
+        AUXDEF \
+    } SELF
+
+#define _declare_htable(SELF, MAP_ONLY, SET_ONLY, KEY, VAL, AUXDEF) \
+    typedef KEY SELF##_key; \
+    typedef VAL SELF##_mapped; \
+\
+    typedef SET_ONLY( SELF##_key ) \
+            MAP_ONLY( struct SELF##_value ) \
+    SELF##_value, SELF##_entry; \
+\
+    typedef struct SELF##_result { \
+        SELF##_value *ref; \
+        size_t idx; \
+        bool inserted; \
+        uint8_t hashx; \
+        uint16_t dist; \
+    } SELF##_result; \
+\
+    typedef struct SELF##_iter { \
+        SELF##_value *ref, *_end; \
+        struct hmap_meta *_mref; \
+    } SELF##_iter; \
+\
+    typedef struct SELF { \
+        SELF##_value* table; \
+        struct hmap_meta* meta; \
+        ptrdiff_t size, bucket_count; \
+        AUXDEF \
+    } SELF
+
+#define _declare_aatree(SELF, MAP_ONLY, SET_ONLY, KEY, VAL, AUXDEF) \
+    typedef KEY SELF##_key; \
+    typedef VAL SELF##_mapped; \
+    typedef struct SELF##_node SELF##_node; \
+\
+    typedef SET_ONLY( SELF##_key ) \
+            MAP_ONLY( struct SELF##_value ) \
+    SELF##_value, SELF##_entry; \
+\
+    typedef struct SELF##_result { \
+        SELF##_value *ref; \
+        bool inserted; \
+    } SELF##_result; \
+\
+    typedef struct SELF##_iter { \
+        SELF##_value *ref; \
+        SELF##_node *_d; \
+        int _top; \
+        int32_t _tn, _st[36]; \
+    } SELF##_iter; \
+\
+    typedef struct SELF { \
+        SELF##_node *nodes; \
+        int32_t root, disp, head, size, capacity; \
+        AUXDEF \
+    } SELF
+
+#define _declare_inplace_stack(SELF, VAL, CAP, AUXDEF) \
+    typedef VAL SELF##_value; \
+    typedef struct SELF##_iter { SELF##_value *ref, *end; } SELF##_iter; \
+    typedef struct SELF { ptrdiff_t size; SELF##_value data[CAP]; AUXDEF } SELF
+
+#define _declare_stack(SELF, VAL, AUXDEF) \
+    typedef VAL SELF##_value; \
+    typedef struct SELF##_iter { SELF##_value *ref, *end; } SELF##_iter; \
+    typedef struct SELF { SELF##_value *data; ptrdiff_t size, capacity; AUXDEF } SELF
+
+#endif // STC_TYPES_H_INCLUDED
+// ### END_FILE_INCLUDE: types.h
+// ### BEGIN_FILE_INCLUDE: utf8_prv.h
+// IWYU pragma: private, include "stc/utf8.h"
+#ifndef STC_UTF8_PRV_H_INCLUDED
+#define STC_UTF8_PRV_H_INCLUDED
+
+#include <ctype.h>
+
+// The following functions assume valid utf8 strings:
+
+/* number of bytes in a utf8 codepoint given its first byte */
+STC_INLINE int cutf8_chr_size(const char *s) {
+    // Every nibble represents the utf8 length given the 
+    // first 4 bits of a utf8 encoded byte.
+    return (int)((0x4322000011111111ull >> (((uint8_t)*s >> 4) << 2)) & 0xf);
+}
+
+/* number of codepoints in the utf8 string s */
+STC_INLINE isize_t cutf8_count(const char *s) {
+    isize_t size = 0;
+    while (*s)
+        size += (*++s & 0xC0) != 0x80;
+    return size;
+}
+
+STC_INLINE isize_t cutf8_count_n(const char *s, isize_t nbytes) {
+    isize_t size = 0;
+    while (nbytes-- != 0 && *s != 0) {
+        size += (*++s & 0xC0) != 0x80;
+    }
+    return size;
+}
+
+STC_INLINE const char* cutf8_at(const char *s, isize_t u8pos) {
+    while ((u8pos > 0) & (*s != 0))
+        u8pos -= (*++s & 0xC0) != 0x80;
+    c_assert(u8pos == 0);
+    return s;
+}
+
+STC_INLINE const char* cutf8_offset(const char* s, isize_t u8pos) {
+    int inc = 1;
+    if (u8pos < 0) u8pos = -u8pos, inc = -1;
+    while (u8pos && *s)
+        u8pos -= (*(s += inc) & 0xC0) != 0x80;
+    c_assert(u8pos == 0);
+    return s;
+}
+
+STC_INLINE isize_t cutf8_to_index(const char* s, isize_t u8pos)
+    { return cutf8_at(s, u8pos) - s; }
+
+STC_INLINE csview cutf8_subview(const char *s, isize_t u8pos, isize_t u8len) {
+    csview span;
+    span.buf = cutf8_at(s, u8pos);
+    span.size = cutf8_to_index(span.buf, u8len);
+    return span;
+}
+
+// ------------------------------------------------------
+// Functions below must be linked with utf8_prv.c and utf8_decode.c
+// To call them, either define i_import before including
+// one of cstr, csview, csviewz, or link with src/libstc.a
+
+// ### BEGIN_FILE_INCLUDE: utf8_decode.h
+#ifndef STC_UTF8_DECODE_H_INCLUDED
+#define STC_UTF8_DECODE_H_INCLUDED
+
+enum { cutf8_ACCEPT=0, cutf8_REJECT=12 };
+
+STC_EXTERN int      cutf8_decode_codepoint(cutf8_decode_t* d, const char* s, const char* end); // s < end
+STC_EXTERN uint32_t cutf8_peek(const char* s);
+
+static inline uint32_t cutf8_decode(cutf8_decode_t* d, const uint32_t byte) {
+    /* decode next utf8 codepoint. https://bjoern.hoehrmann.de/utf-8/decoder/dfa */
+    extern const uint8_t cutf8_dtab[]; /* utf8_decode.c */
+
+    const uint32_t type = cutf8_dtab[byte];
+    d->codep = d->state ? (byte & 0x3fu) | (d->codep << 6)
+                        : (0xffU >> type) & byte;
+    return d->state = cutf8_dtab[256 + d->state + type];
+}
+
+#endif // STC_UTF8_DECODE_H_INCLUDED
+// ### END_FILE_INCLUDE: utf8_decode.h
+
+STC_EXTERN bool     cutf8_valid(const char* s);
+STC_EXTERN bool     cutf8_valid_n(const char* s, isize_t nbytes);
+STC_EXTERN int      cutf8_encode(char *out, uint32_t c);
+STC_EXTERN uint32_t cutf8_casefold(uint32_t c);
+STC_EXTERN uint32_t cutf8_tolower(uint32_t c);
+STC_EXTERN uint32_t cutf8_toupper(uint32_t c);
+STC_EXTERN int      cutf8_icmp_sv(const csview s1, const csview s2);
+STC_EXTERN bool     cutf8_isgroup(int group, uint32_t c);
+
+STC_INLINE uint32_t cutf8_peek_at(const char* s, isize_t offset)
+    { return cutf8_peek(cutf8_offset(s, offset)); }
+
+STC_INLINE bool cutf8_isupper(uint32_t c)
+    { return c < 128 ? (c >= 'A') & (c <= 'Z') : cutf8_tolower(c) != c; }
+
+STC_INLINE bool cutf8_islower(uint32_t c)
+    { return c < 128 ? (c >= 'a') & (c <= 'z') : cutf8_toupper(c) != c; }
+
+/* case-insensitive utf8 string comparison */
+STC_INLINE int cutf8_icmp(const char* s1, const char* s2) {
+    return cutf8_icmp_sv(c_sv(s1, INTPTR_MAX), c_sv(s2, INTPTR_MAX));
+}
+
+// ------------------------------------------------------
+// Functions below must be linked with ucd_prv.c content
+
+enum cutf8_group {
+    U8G_Cc, U8G_L, U8G_Lm, U8G_Lt, U8G_Nd, U8G_Nl, U8G_No,
+    U8G_P, U8G_Pc, U8G_Pd, U8G_Pe, U8G_Pf, U8G_Pi, U8G_Ps,
+    U8G_Sc, U8G_Sk, U8G_Sm, U8G_Zl, U8G_Zp, U8G_Zs,
+    U8G_Arabic, U8G_Bengali, U8G_Cyrillic,
+    U8G_Devanagari, U8G_Georgian, U8G_Greek,
+    U8G_Han, U8G_Hiragana, U8G_Katakana,
+    U8G_Latin, U8G_Thai,
+    U8G_SIZE
+};
+
+STC_INLINE bool cutf8_isdigit(uint32_t c)
+    { return c < 128 ? (c >= '0') & (c <= '9') : cutf8_isgroup(U8G_Nd, c); }
+
+STC_INLINE bool cutf8_isalpha(uint32_t c)
+    { return (c < 128 ? isalpha((int)c) != 0 : cutf8_isgroup(U8G_L, c)); }
+
+STC_INLINE bool cutf8_iscased(uint32_t c) {
+    if (c < 128) return isalpha((int)c) != 0;
+    return cutf8_toupper(c) != c || cutf8_tolower(c) != c || cutf8_isgroup(U8G_Lt, c);
+}
+
+STC_INLINE bool cutf8_isalnum(uint32_t c) {
+    if (c < 128) return isalnum((int)c) != 0;
+    return cutf8_isgroup(U8G_L, c) || cutf8_isgroup(U8G_Nd, c);
+}
+
+STC_INLINE bool cutf8_isword(uint32_t c) {
+    if (c < 128) return (isalnum((int)c) != 0) | (c == '_');
+    return cutf8_isgroup(U8G_L, c) || cutf8_isgroup(U8G_Nd, c) || cutf8_isgroup(U8G_Pc, c);
+}
+
+STC_INLINE bool cutf8_isblank(uint32_t c) {
+    if (c < 128) return (c == ' ') | (c == '\t');
+    return cutf8_isgroup(U8G_Zs, c);
+}
+
+STC_INLINE bool cutf8_isspace(uint32_t c) {
+    if (c < 128) return isspace((int)c) != 0;
+    return ((c == 8232) | (c == 8233)) || cutf8_isgroup(U8G_Zs, c);
+}
+
+#define c_lowerbound(T, c, at, less, N, ret) do { \
+    int _n = N, _i = 0, _mid = _n/2; \
+    T _c = c; \
+    while (_n > 0) { \
+        if (less(at((_i + _mid)), &_c)) { \
+            _i += _mid + 1; \
+            _n -= _mid + 1; \
+            _mid = _n*7/8; \
+        } else { \
+            _n = _mid; \
+            _mid = _n/8; \
+        } \
+    } \
+    *(ret) = _i; \
+} while (0)
+
+#endif // STC_UTF8_PRV_H_INCLUDED
+// ### END_FILE_INCLUDE: utf8_prv.h
+
+#define             csviewz_init() c_zv("")
+#define             csviewz_clone(zs) c_default_clone(zs)
+#define             csviewz_drop(self) c_default_drop(self)
+#define             csviewz_toraw(self) (self)->str
+
+typedef             const char* csviewz_raw;
+#define             csviewz_raw_cmp(x, y)      strcmp(*(x), *(y))
+#define             csviewz_raw_eq(x, y)       (csviewz_raw_cmp(x, y) == 0)
+#define             csviewz_raw_hash(vp)       c_hash_str(*(vp))
+
+STC_INLINE csviewz  csviewz_from(const char* str)
+                        { return c_literal(csviewz){str, c_strlen(str)}; }
+STC_INLINE void     csviewz_clear(csviewz* self) { *self = c_zv(""); }
+STC_INLINE csview   csviewz_sv(csviewz zs) { return c_sv_2(zs.str, zs.size); }
+
+STC_INLINE isize_t  csviewz_size(csviewz zs) { return zs.size; }
+STC_INLINE bool     csviewz_is_empty(csviewz zs) { return zs.size == 0; }
+
+STC_INLINE bool csviewz_equals(csviewz zs, const char* str) {
+    isize_t n = c_strlen(str);
+    return zs.size == n && !c_memcmp(zs.str, str, n);
+}
+
+STC_INLINE isize_t csviewz_find(csviewz zs, const char* search) {
+    const char* res = strstr(zs.str, search);
+    return res ? (res - zs.str) : c_NPOS;
+}
+
+STC_INLINE bool csviewz_contains(csviewz zs, const char* str)
+    { return csviewz_find(zs, str) != c_NPOS; }
+
+STC_INLINE bool csviewz_starts_with(csviewz zs, const char* str) {
+    isize_t n = c_strlen(str);
+    return n <= zs.size && !c_memcmp(zs.str, str, n);
+}
+
+STC_INLINE bool csviewz_ends_with(csviewz zs, const char* str) {
+    isize_t n = c_strlen(str);
+    return n <= zs.size && !c_memcmp(zs.str + zs.size - n, str, n);
+}
+
+STC_INLINE csviewz csviewz_from_pos(csviewz zs, isize_t pos) {
+    if (pos > zs.size) pos = zs.size;
+    zs.str += pos; zs.size -= pos; return zs;
+}
+
+STC_INLINE csview csviewz_subview(csviewz zs, isize_t pos, isize_t len) {
+    c_assert(((size_t)pos <= (size_t)zs.size) & (len >= 0));
+    if (pos + len > zs.size) len = zs.size - pos;
+    return c_literal(csview){zs.str + pos, len};
+}
+
+STC_INLINE csviewz csviewz_tail(csviewz zs, isize_t len) {
+    if (len > zs.size) len = zs.size;
+    zs.str += zs.size - len; zs.size = len;
+    return zs;
+}
+
+/* utf8 */
+
+STC_INLINE csviewz csviewz_u8_from_pos(csviewz zs, isize_t u8pos)
+    { return csviewz_from_pos(zs, cutf8_to_index(zs.str, u8pos)); }
+
+STC_INLINE csviewz csviewz_u8_tail(csviewz zs, isize_t u8len) {
+    const char* p = &zs.str[zs.size];
+    while (u8len && p != zs.str)
+        u8len -= (*--p & 0xC0) != 0x80;
+    zs.size -= p - zs.str, zs.str = p;
+    return zs;
+}
+
+STC_INLINE csview csviewz_u8_subview(csviewz zs, isize_t u8pos, isize_t u8len)
+    { return cutf8_subview(zs.str, u8pos, u8len); }
+
+STC_INLINE csviewz_iter csviewz_u8_at(csviewz zs, isize_t u8pos) {
+    csviewz_iter it = {.u8={{cutf8_at(zs.str, u8pos)}}};
+    if (*it.ref == '\0') it.ref = NULL;
+    else it.chr.size = cutf8_decode_codepoint(&it.u8.dec, it.ref, NULL);
+    return it;
+}
+
+STC_INLINE isize_t csviewz_u8_size(csviewz zs)
+    { return cutf8_count(zs.str); }
+
+STC_INLINE bool csviewz_u8_valid(csviewz zs) // requires linking with utf8 symbols
+    { return cutf8_valid_n(zs.str, zs.size); }
+
+/* utf8 iterator */
+STC_INLINE csviewz_iter csviewz_begin(const csviewz* self) {
+    csviewz_iter it = {.u8={{self->str}}};
+    if (*it.ref == '\0') it.ref = NULL;
+    else it.chr.size = cutf8_decode_codepoint(&it.u8.dec, it.ref, NULL);
+    return it;
+}
+
+STC_INLINE csviewz_iter csviewz_end(const csviewz* self) {
+    (void)self; csviewz_iter it = {0}; return it;
+}
+
+STC_INLINE void csviewz_next(csviewz_iter* it) {
+    it->ref += it->chr.size;
+    if (*it->ref == '\0') it->ref = NULL;
+    else it->chr.size = cutf8_decode_codepoint(&it->u8.dec, it->ref, NULL);
+}
+
+STC_INLINE csviewz_iter csviewz_advance(csviewz_iter it, isize_t u8pos) {
+    it.ref = cutf8_offset(it.ref, u8pos);
+    if (*it.ref == '\0') it.ref = NULL;
+    else it.chr.size = cutf8_decode_codepoint(&it.u8.dec, it.ref, NULL);
+    return it;
+}
+
+STC_INLINE uint32_t csviewz_codepoint(const csviewz_iter* it)
+    { return it->u8.dec.codep; }
+
+/* ---- Container helper functions ---- */
+
+STC_INLINE size_t csviewz_hash(const csviewz *self)
+    { return c_hash_str(self->str); }
+
+STC_INLINE int csviewz_cmp(const csviewz* x, const csviewz* y)
+    { return strcmp(x->str, y->str); }
+
+STC_INLINE bool csviewz_eq(const csviewz* x, const csviewz* y)
+    { return x->size == y->size && !c_memcmp(x->str, y->str, x->size); }
+
+STC_INLINE int csviewz_icmp(const csviewz* x, const csviewz* y)
+    { return cutf8_icmp(x->str, y->str); }
+
+STC_INLINE bool csviewz_ieq(const csviewz* x, const csviewz* y)
+    { return x->size == y->size && !cutf8_icmp(x->str, y->str); }
+
+/* ---- case insensitive ---- */
+
+STC_INLINE bool csviewz_iequals(csviewz zs, const char* str)
+    { return c_strlen(str) == zs.size && !cutf8_icmp(zs.str, str); }
+
+STC_INLINE bool csviewz_istarts_with(csviewz zs, const char* str)
+    { return c_strlen(str) <= zs.size && !cutf8_icmp(zs.str, str); }
+
+STC_INLINE bool csviewz_iends_with(csviewz zs, const char* str) {
+    isize_t n = c_strlen(str);
+    return n <= zs.size && !cutf8_icmp(zs.str + zs.size - n, str);
+}
+
+#endif // STC_CSVIEWZ_H_INCLUDED
+
+#if defined i_import
+// ### BEGIN_FILE_INCLUDE: utf8_prv.c
+#ifdef i_import
+// ### BEGIN_FILE_INCLUDE: utf8_decode.c
+#ifndef STC_UTF8_DECODE_C_INCLUDED
+#define STC_UTF8_DECODE_C_INCLUDED
+
+
+int cutf8_decode_codepoint(cutf8_decode_t* d, const char* s, const char* end) { // s < end
+    const char* start = s;
+    do switch (cutf8_decode(d, (uint8_t)*s++)) {
+        case cutf8_ACCEPT: return (int)(s - start);
+        case cutf8_REJECT: goto recover;
+    } while (s != end);
+
+    recover: // Accept error/non-complete codepoints too.
+    d->state = cutf8_ACCEPT;
+    d->codep = 0xFFFD; // � replacement chr
+    int len = (int)(s - start);
+    return len <= 2 ? 1 : len - 1; // backtrack 1 byte for faster resync
+}
+
+uint32_t cutf8_peek(const char* s) {
+    cutf8_decode_t d = {0};
+    do {
+        cutf8_decode(&d, (uint8_t)*s++);
+    } while (d.state > cutf8_REJECT);
+    return d.state == cutf8_ACCEPT ? d.codep : 0xFFFD;
+}
+
+const uint8_t cutf8_dtab[] = {
+   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+   1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,  9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,
+   7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,  7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+   8,8,2,2,2,2,2,2,2,2,2,2,2,2,2,2,  2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
+  10,3,3,3,3,3,3,3,3,3,3,3,3,4,3,3, 11,6,6,6,5,8,8,8,8,8,8,8,8,8,8,8,
+   0,12,24,36,60,96,84,12,12,12,48,72, 12,12,12,12,12,12,12,12,12,12,12,12,
+  12, 0,12,12,12,12,12, 0,12, 0,12,12, 12,24,12,12,12,12,12,24,12,24,12,12,
+  12,12,12,12,12,12,12,24,12,12,12,12, 12,24,12,12,12,12,12,12,12,24,12,12,
+  12,12,12,12,12,12,12,36,12,36,12,12, 12,36,12,12,12,12,12,36,12,36,12,12,
+  12,36,12,12,12,12,12,12,12,12,12,12,
+};
+
+#endif // STC_UTF8_DECODE_C_INCLUDED
+// ### END_FILE_INCLUDE: utf8_decode.c
+#endif
+
+#ifndef STC_UTF8_PRV_C_INCLUDED
+#define STC_UTF8_PRV_C_INCLUDED
+
+// ### BEGIN_FILE_INCLUDE: utf8_tab.c
+
+struct CaseMapping { uint16_t c1, c2, m2; };
+
+static struct CaseMapping casemappings[] = {
+    {0x0041, 0x005A, 0x007A}, // A a (26) LATIN CAPITAL LETTER A
+    {0x00B5, 0x00B5, 0x03BC}, // µ μ ( 1) MICRO SIGN
+    {0x00C0, 0x00D6, 0x00F6}, // À à (23) LATIN CAPITAL LETTER A WITH GRAVE
+    {0x00D8, 0x00DE, 0x00FE}, // Ø ø ( 7) LATIN CAPITAL LETTER O WITH STROKE
+    {0x0100, 0x012E, 0x012F}, // Ā ā (24) LATIN CAPITAL LETTER A WITH MACRON
+    {0x0132, 0x0136, 0x0137}, // Ĳ ĳ ( 3) LATIN CAPITAL LIGATURE IJ
+    {0x0139, 0x0147, 0x0148}, // Ĺ ĺ ( 8) LATIN CAPITAL LETTER L WITH ACUTE
+    {0x014A, 0x0176, 0x0177}, // Ŋ ŋ (23) LATIN CAPITAL LETTER ENG
+    {0x0178, 0x0178, 0x00FF}, // Ÿ ÿ ( 1) LATIN CAPITAL LETTER Y WITH DIAERESIS
+    {0x0179, 0x017D, 0x017E}, // Ź ź ( 3) LATIN CAPITAL LETTER Z WITH ACUTE
+    {0x017F, 0x017F, 0x0073}, // ſ s ( 1) LATIN SMALL LETTER LONG S
+    {0x0181, 0x0181, 0x0253}, // Ɓ ɓ ( 1) LATIN CAPITAL LETTER B WITH HOOK
+    {0x0182, 0x0184, 0x0185}, // Ƃ ƃ ( 2) LATIN CAPITAL LETTER B WITH TOPBAR
+    {0x0186, 0x0186, 0x0254}, // Ɔ ɔ ( 1) LATIN CAPITAL LETTER OPEN O
+    {0x0187, 0x0187, 0x0188}, // Ƈ ƈ ( 1) LATIN CAPITAL LETTER C WITH HOOK
+    {0x0189, 0x018A, 0x0257}, // Ɖ ɖ ( 2) LATIN CAPITAL LETTER AFRICAN D
+    {0x018B, 0x018B, 0x018C}, // Ƌ ƌ ( 1) LATIN CAPITAL LETTER D WITH TOPBAR
+    {0x018E, 0x018E, 0x01DD}, // Ǝ ǝ ( 1) LATIN CAPITAL LETTER REVERSED E
+    {0x018F, 0x018F, 0x0259}, // Ə ə ( 1) LATIN CAPITAL LETTER SCHWA
+    {0x0190, 0x0190, 0x025B}, // Ɛ ɛ ( 1) LATIN CAPITAL LETTER OPEN E
+    {0x0191, 0x0191, 0x0192}, // Ƒ ƒ ( 1) LATIN CAPITAL LETTER F WITH HOOK
+    {0x0193, 0x0193, 0x0260}, // Ɠ ɠ ( 1) LATIN CAPITAL LETTER G WITH HOOK
+    {0x0194, 0x0194, 0x0263}, // Ɣ ɣ ( 1) LATIN CAPITAL LETTER GAMMA
+    {0x0196, 0x0196, 0x0269}, // Ɩ ɩ ( 1) LATIN CAPITAL LETTER IOTA
+    {0x0197, 0x0197, 0x0268}, // Ɨ ɨ ( 1) LATIN CAPITAL LETTER I WITH STROKE
+    {0x0198, 0x0198, 0x0199}, // Ƙ ƙ ( 1) LATIN CAPITAL LETTER K WITH HOOK
+    {0x019C, 0x019C, 0x026F}, // Ɯ ɯ ( 1) LATIN CAPITAL LETTER TURNED M
+    {0x019D, 0x019D, 0x0272}, // Ɲ ɲ ( 1) LATIN CAPITAL LETTER N WITH LEFT HOOK
+    {0x019F, 0x019F, 0x0275}, // Ɵ ɵ ( 1) LATIN CAPITAL LETTER O WITH MIDDLE TILDE
+    {0x01A0, 0x01A4, 0x01A5}, // Ơ ơ ( 3) LATIN CAPITAL LETTER O WITH HORN
+    {0x01A6, 0x01A6, 0x0280}, // Ʀ ʀ ( 1) LATIN LETTER YR
+    {0x01A7, 0x01A7, 0x01A8}, // Ƨ ƨ ( 1) LATIN CAPITAL LETTER TONE TWO
+    {0x01A9, 0x01A9, 0x0283}, // Ʃ ʃ ( 1) LATIN CAPITAL LETTER ESH
+    {0x01AC, 0x01AC, 0x01AD}, // Ƭ ƭ ( 1) LATIN CAPITAL LETTER T WITH HOOK
+    {0x01AE, 0x01AE, 0x0288}, // Ʈ ʈ ( 1) LATIN CAPITAL LETTER T WITH RETROFLEX HOOK
+    {0x01AF, 0x01AF, 0x01B0}, // Ư ư ( 1) LATIN CAPITAL LETTER U WITH HORN
+    {0x01B1, 0x01B2, 0x028B}, // Ʊ ʊ ( 2) LATIN CAPITAL LETTER UPSILON
+    {0x01B3, 0x01B5, 0x01B6}, // Ƴ ƴ ( 2) LATIN CAPITAL LETTER Y WITH HOOK
+    {0x01B7, 0x01B7, 0x0292}, // Ʒ ʒ ( 1) LATIN CAPITAL LETTER EZH
+    {0x01B8, 0x01B8, 0x01B9}, // Ƹ ƹ ( 1) LATIN CAPITAL LETTER EZH REVERSED
+    {0x01BC, 0x01BC, 0x01BD}, // Ƽ ƽ ( 1) LATIN CAPITAL LETTER TONE FIVE
+    {0x01C4, 0x01C4, 0x01C6}, // Ǆ ǆ ( 1) LATIN CAPITAL LETTER DZ WITH CARON
+    {0x01C5, 0x01C5, 0x01C6}, // ǅ ǆ ( 1) LATIN CAPITAL LETTER D WITH SMALL LETTER Z WITH CARON
+    {0x01C7, 0x01C7, 0x01C9}, // Ǉ ǉ ( 1) LATIN CAPITAL LETTER LJ
+    {0x01C8, 0x01C8, 0x01C9}, // ǈ ǉ ( 1) LATIN CAPITAL LETTER L WITH SMALL LETTER J
+    {0x01CA, 0x01CA, 0x01CC}, // Ǌ ǌ ( 1) LATIN CAPITAL LETTER NJ
+    {0x01CB, 0x01DB, 0x01DC}, // ǋ ǌ ( 9) LATIN CAPITAL LETTER N WITH SMALL LETTER J
+    {0x01DE, 0x01EE, 0x01EF}, // Ǟ ǟ ( 9) LATIN CAPITAL LETTER A WITH DIAERESIS AND MACRON
+    {0x01F1, 0x01F1, 0x01F3}, // Ǳ ǳ ( 1) LATIN CAPITAL LETTER DZ
+    {0x01F2, 0x01F4, 0x01F5}, // ǲ ǳ ( 2) LATIN CAPITAL LETTER D WITH SMALL LETTER Z
+    {0x01F6, 0x01F6, 0x0195}, // Ƕ ƕ ( 1) LATIN CAPITAL LETTER HWAIR
+    {0x01F7, 0x01F7, 0x01BF}, // Ƿ ƿ ( 1) LATIN CAPITAL LETTER WYNN
+    {0x01F8, 0x021E, 0x021F}, // Ǹ ǹ (20) LATIN CAPITAL LETTER N WITH GRAVE
+    {0x0220, 0x0220, 0x019E}, // Ƞ ƞ ( 1) LATIN CAPITAL LETTER N WITH LONG RIGHT LEG
+    {0x0222, 0x0232, 0x0233}, // Ȣ ȣ ( 9) LATIN CAPITAL LETTER OU
+    {0x023A, 0x023A, 0x2C65}, // Ⱥ ⱥ ( 1) LATIN CAPITAL LETTER A WITH STROKE
+    {0x023B, 0x023B, 0x023C}, // Ȼ ȼ ( 1) LATIN CAPITAL LETTER C WITH STROKE
+    {0x023D, 0x023D, 0x019A}, // Ƚ ƚ ( 1) LATIN CAPITAL LETTER L WITH BAR
+    {0x023E, 0x023E, 0x2C66}, // Ⱦ ⱦ ( 1) LATIN CAPITAL LETTER T WITH DIAGONAL STROKE
+    {0x0241, 0x0241, 0x0242}, // Ɂ ɂ ( 1) LATIN CAPITAL LETTER GLOTTAL STOP
+    {0x0243, 0x0243, 0x0180}, // Ƀ ƀ ( 1) LATIN CAPITAL LETTER B WITH STROKE
+    {0x0244, 0x0244, 0x0289}, // Ʉ ʉ ( 1) LATIN CAPITAL LETTER U BAR
+    {0x0245, 0x0245, 0x028C}, // Ʌ ʌ ( 1) LATIN CAPITAL LETTER TURNED V
+    {0x0246, 0x024E, 0x024F}, // Ɇ ɇ ( 5) LATIN CAPITAL LETTER E WITH STROKE
+    {0x0345, 0x0345, 0x03B9}, // ͅ ι ( 1) COMBINING GREEK YPOGEGRAMMENI
+    {0x0370, 0x0372, 0x0373}, // Ͱ ͱ ( 2) GREEK CAPITAL LETTER HETA
+    {0x0376, 0x0376, 0x0377}, // Ͷ ͷ ( 1) GREEK CAPITAL LETTER PAMPHYLIAN DIGAMMA
+    {0x037F, 0x037F, 0x03F3}, // Ϳ ϳ ( 1) GREEK CAPITAL LETTER YOT
+    {0x0386, 0x0386, 0x03AC}, // Ά ά ( 1) GREEK CAPITAL LETTER ALPHA WITH TONOS
+    {0x0388, 0x038A, 0x03AF}, // Έ έ ( 3) GREEK CAPITAL LETTER EPSILON WITH TONOS
+    {0x038C, 0x038C, 0x03CC}, // Ό ό ( 1) GREEK CAPITAL LETTER OMICRON WITH TONOS
+    {0x038E, 0x038F, 0x03CE}, // Ύ ύ ( 2) GREEK CAPITAL LETTER UPSILON WITH TONOS
+    {0x0391, 0x03A1, 0x03C1}, // Α α (17) GREEK CAPITAL LETTER ALPHA
+    {0x03A3, 0x03AB, 0x03CB}, // Σ σ ( 9) GREEK CAPITAL LETTER SIGMA
+    {0x03C2, 0x03C2, 0x03C3}, // ς σ ( 1) GREEK SMALL LETTER FINAL SIGMA
+    {0x03CF, 0x03CF, 0x03D7}, // Ϗ ϗ ( 1) GREEK CAPITAL KAI SYMBOL
+    {0x03D0, 0x03D0, 0x03B2}, // ϐ β ( 1) GREEK BETA SYMBOL
+    {0x03D1, 0x03D1, 0x03B8}, // ϑ θ ( 1) GREEK THETA SYMBOL
+    {0x03D5, 0x03D5, 0x03C6}, // ϕ φ ( 1) GREEK PHI SYMBOL
+    {0x03D6, 0x03D6, 0x03C0}, // ϖ π ( 1) GREEK PI SYMBOL
+    {0x03D8, 0x03EE, 0x03EF}, // Ϙ ϙ (12) GREEK LETTER ARCHAIC KOPPA
+    {0x03F0, 0x03F0, 0x03BA}, // ϰ κ ( 1) GREEK KAPPA SYMBOL
+    {0x03F1, 0x03F1, 0x03C1}, // ϱ ρ ( 1) GREEK RHO SYMBOL
+    {0x03F4, 0x03F4, 0x03B8}, // ϴ θ ( 1) GREEK CAPITAL THETA SYMBOL
+    {0x03F5, 0x03F5, 0x03B5}, // ϵ ε ( 1) GREEK LUNATE EPSILON SYMBOL
+    {0x03F7, 0x03F7, 0x03F8}, // Ϸ ϸ ( 1) GREEK CAPITAL LETTER SHO
+    {0x03F9, 0x03F9, 0x03F2}, // Ϲ ϲ ( 1) GREEK CAPITAL LUNATE SIGMA SYMBOL
+    {0x03FA, 0x03FA, 0x03FB}, // Ϻ ϻ ( 1) GREEK CAPITAL LETTER SAN
+    {0x03FD, 0x03FF, 0x037D}, // Ͻ ͻ ( 3) GREEK CAPITAL REVERSED LUNATE SIGMA SYMBOL
+    {0x0400, 0x040F, 0x045F}, // Ѐ ѐ (16) CYRILLIC CAPITAL LETTER IE WITH GRAVE
+    {0x0410, 0x042F, 0x044F}, // А а (32) CYRILLIC CAPITAL LETTER A
+    {0x0460, 0x0480, 0x0481}, // Ѡ ѡ (17) CYRILLIC CAPITAL LETTER OMEGA
+    {0x048A, 0x04BE, 0x04BF}, // Ҋ ҋ (27) CYRILLIC CAPITAL LETTER SHORT I WITH TAIL
+    {0x04C0, 0x04C0, 0x04CF}, // Ӏ ӏ ( 1) CYRILLIC LETTER PALOCHKA
+    {0x04C1, 0x04CD, 0x04CE}, // Ӂ ӂ ( 7) CYRILLIC CAPITAL LETTER ZHE WITH BREVE
+    {0x04D0, 0x052E, 0x052F}, // Ӑ ӑ (48) CYRILLIC CAPITAL LETTER A WITH BREVE
+    {0x0531, 0x0556, 0x0586}, // Ա ա (38) ARMENIAN CAPITAL LETTER AYB
+    {0x10A0, 0x10C5, 0x2D25}, // Ⴀ ⴀ (38) GEORGIAN CAPITAL LETTER AN
+    {0x10C7, 0x10C7, 0x2D27}, // Ⴧ ⴧ ( 1) GEORGIAN CAPITAL LETTER YN
+    {0x10CD, 0x10CD, 0x2D2D}, // Ⴭ ⴭ ( 1) GEORGIAN CAPITAL LETTER AEN
+    {0x13F8, 0x13FD, 0x13F5}, // ᏸ Ᏸ ( 6) CHEROKEE SMALL LETTER YE
+    {0x1C80, 0x1C80, 0x0432}, // ᲀ в ( 1) CYRILLIC SMALL LETTER ROUNDED VE
+    {0x1C81, 0x1C81, 0x0434}, // ᲁ д ( 1) CYRILLIC SMALL LETTER LONG-LEGGED DE
+    {0x1C82, 0x1C82, 0x043E}, // ᲂ о ( 1) CYRILLIC SMALL LETTER NARROW O
+    {0x1C83, 0x1C84, 0x0442}, // ᲃ с ( 2) CYRILLIC SMALL LETTER WIDE ES
+    {0x1C85, 0x1C85, 0x0442}, // ᲅ т ( 1) CYRILLIC SMALL LETTER THREE-LEGGED TE
+    {0x1C86, 0x1C86, 0x044A}, // ᲆ ъ ( 1) CYRILLIC SMALL LETTER TALL HARD SIGN
+    {0x1C87, 0x1C87, 0x0463}, // ᲇ ѣ ( 1) CYRILLIC SMALL LETTER TALL YAT
+    {0x1C88, 0x1C88, 0xA64B}, // ᲈ ꙋ ( 1) CYRILLIC SMALL LETTER UNBLENDED UK
+    {0x1C90, 0x1CBA, 0x10FA}, // Ა ა (43) GEORGIAN MTAVRULI CAPITAL LETTER AN
+    {0x1CBD, 0x1CBF, 0x10FF}, // Ჽ ჽ ( 3) GEORGIAN MTAVRULI CAPITAL LETTER AEN
+    {0x1E00, 0x1E94, 0x1E95}, // Ḁ ḁ (75) LATIN CAPITAL LETTER A WITH RING BELOW
+    {0x1E9B, 0x1E9B, 0x1E61}, // ẛ ṡ ( 1) LATIN SMALL LETTER LONG S WITH DOT ABOVE
+    {0x1E9E, 0x1E9E, 0x00DF}, // ẞ ß ( 1) LATIN CAPITAL LETTER SHARP S
+    {0x1EA0, 0x1EFE, 0x1EFF}, // Ạ ạ (48) LATIN CAPITAL LETTER A WITH DOT BELOW
+    {0x1F08, 0x1F0F, 0x1F07}, // Ἀ ἀ ( 8) GREEK CAPITAL LETTER ALPHA WITH PSILI
+    {0x1F18, 0x1F1D, 0x1F15}, // Ἐ ἐ ( 6) GREEK CAPITAL LETTER EPSILON WITH PSILI
+    {0x1F28, 0x1F2F, 0x1F27}, // Ἠ ἠ ( 8) GREEK CAPITAL LETTER ETA WITH PSILI
+    {0x1F38, 0x1F3F, 0x1F37}, // Ἰ ἰ ( 8) GREEK CAPITAL LETTER IOTA WITH PSILI
+    {0x1F48, 0x1F4D, 0x1F45}, // Ὀ ὀ ( 6) GREEK CAPITAL LETTER OMICRON WITH PSILI
+    {0x1F59, 0x1F5F, 0x1F57}, // Ὑ ὑ ( 7) GREEK CAPITAL LETTER UPSILON WITH DASIA
+    {0x1F68, 0x1F6F, 0x1F67}, // Ὠ ὠ ( 8) GREEK CAPITAL LETTER OMEGA WITH PSILI
+    {0x1F88, 0x1F8F, 0x1F87}, // ᾈ ᾀ ( 8) GREEK CAPITAL LETTER ALPHA WITH PSILI AND PROSGEGRAMMENI
+    {0x1F98, 0x1F9F, 0x1F97}, // ᾘ ᾐ ( 8) GREEK CAPITAL LETTER ETA WITH PSILI AND PROSGEGRAMMENI
+    {0x1FA8, 0x1FAF, 0x1FA7}, // ᾨ ᾠ ( 8) GREEK CAPITAL LETTER OMEGA WITH PSILI AND PROSGEGRAMMENI
+    {0x1FB8, 0x1FB9, 0x1FB1}, // Ᾰ ᾰ ( 2) GREEK CAPITAL LETTER ALPHA WITH VRACHY
+    {0x1FBA, 0x1FBB, 0x1F71}, // Ὰ ὰ ( 2) GREEK CAPITAL LETTER ALPHA WITH VARIA
+    {0x1FBC, 0x1FBC, 0x1FB3}, // ᾼ ᾳ ( 1) GREEK CAPITAL LETTER ALPHA WITH PROSGEGRAMMENI
+    {0x1FBE, 0x1FBE, 0x03B9}, // ι ι ( 1) GREEK PROSGEGRAMMENI
+    {0x1FC8, 0x1FCB, 0x1F75}, // Ὲ ὲ ( 4) GREEK CAPITAL LETTER EPSILON WITH VARIA
+    {0x1FCC, 0x1FCC, 0x1FC3}, // ῌ ῃ ( 1) GREEK CAPITAL LETTER ETA WITH PROSGEGRAMMENI
+    {0x1FD8, 0x1FD9, 0x1FD1}, // Ῐ ῐ ( 2) GREEK CAPITAL LETTER IOTA WITH VRACHY
+    {0x1FDA, 0x1FDB, 0x1F77}, // Ὶ ὶ ( 2) GREEK CAPITAL LETTER IOTA WITH VARIA
+    {0x1FE8, 0x1FE9, 0x1FE1}, // Ῠ ῠ ( 2) GREEK CAPITAL LETTER UPSILON WITH VRACHY
+    {0x1FEA, 0x1FEB, 0x1F7B}, // Ὺ ὺ ( 2) GREEK CAPITAL LETTER UPSILON WITH VARIA
+    {0x1FEC, 0x1FEC, 0x1FE5}, // Ῥ ῥ ( 1) GREEK CAPITAL LETTER RHO WITH DASIA
+    {0x1FF8, 0x1FF9, 0x1F79}, // Ὸ ὸ ( 2) GREEK CAPITAL LETTER OMICRON WITH VARIA
+    {0x1FFA, 0x1FFB, 0x1F7D}, // Ὼ ὼ ( 2) GREEK CAPITAL LETTER OMEGA WITH VARIA
+    {0x1FFC, 0x1FFC, 0x1FF3}, // ῼ ῳ ( 1) GREEK CAPITAL LETTER OMEGA WITH PROSGEGRAMMENI
+    {0x2126, 0x2126, 0x03C9}, // Ω ω ( 1) OHM SIGN
+    {0x212A, 0x212A, 0x006B}, // K k ( 1) KELVIN SIGN
+    {0x212B, 0x212B, 0x00E5}, // Å å ( 1) ANGSTROM SIGN
+    {0x2132, 0x2132, 0x214E}, // Ⅎ ⅎ ( 1) TURNED CAPITAL F
+    {0x2160, 0x216F, 0x217F}, // Ⅰ ⅰ (16) ROMAN NUMERAL ONE
+    {0x2183, 0x2183, 0x2184}, // Ↄ ↄ ( 1) ROMAN NUMERAL REVERSED ONE HUNDRED
+    {0x24B6, 0x24CF, 0x24E9}, // Ⓐ ⓐ (26) CIRCLED LATIN CAPITAL LETTER A
+    {0x2C00, 0x2C2F, 0x2C5F}, // Ⰰ ⰰ (48) GLAGOLITIC CAPITAL LETTER AZU
+    {0x2C60, 0x2C60, 0x2C61}, // Ⱡ ⱡ ( 1) LATIN CAPITAL LETTER L WITH DOUBLE BAR
+    {0x2C62, 0x2C62, 0x026B}, // Ɫ ɫ ( 1) LATIN CAPITAL LETTER L WITH MIDDLE TILDE
+    {0x2C63, 0x2C63, 0x1D7D}, // Ᵽ ᵽ ( 1) LATIN CAPITAL LETTER P WITH STROKE
+    {0x2C64, 0x2C64, 0x027D}, // Ɽ ɽ ( 1) LATIN CAPITAL LETTER R WITH TAIL
+    {0x2C67, 0x2C6B, 0x2C6C}, // Ⱨ ⱨ ( 3) LATIN CAPITAL LETTER H WITH DESCENDER
+    {0x2C6D, 0x2C6D, 0x0251}, // Ɑ ɑ ( 1) LATIN CAPITAL LETTER ALPHA
+    {0x2C6E, 0x2C6E, 0x0271}, // Ɱ ɱ ( 1) LATIN CAPITAL LETTER M WITH HOOK
+    {0x2C6F, 0x2C6F, 0x0250}, // Ɐ ɐ ( 1) LATIN CAPITAL LETTER TURNED A
+    {0x2C70, 0x2C70, 0x0252}, // Ɒ ɒ ( 1) LATIN CAPITAL LETTER TURNED ALPHA
+    {0x2C72, 0x2C72, 0x2C73}, // Ⱳ ⱳ ( 1) LATIN CAPITAL LETTER W WITH HOOK
+    {0x2C75, 0x2C75, 0x2C76}, // Ⱶ ⱶ ( 1) LATIN CAPITAL LETTER HALF H
+    {0x2C7E, 0x2C7F, 0x0240}, // Ȿ ȿ ( 2) LATIN CAPITAL LETTER S WITH SWASH TAIL
+    {0x2C80, 0x2CE2, 0x2CE3}, // Ⲁ ⲁ (50) COPTIC CAPITAL LETTER ALFA
+    {0x2CEB, 0x2CED, 0x2CEE}, // Ⳬ ⳬ ( 2) COPTIC CAPITAL LETTER CRYPTOGRAMMIC SHEI
+    {0x2CF2, 0x2CF2, 0x2CF3}, // Ⳳ ⳳ ( 1) COPTIC CAPITAL LETTER BOHAIRIC KHEI
+    {0xA640, 0xA66C, 0xA66D}, // Ꙁ ꙁ (23) CYRILLIC CAPITAL LETTER ZEMLYA
+    {0xA680, 0xA69A, 0xA69B}, // Ꚁ ꚁ (14) CYRILLIC CAPITAL LETTER DWE
+    {0xA722, 0xA72E, 0xA72F}, // Ꜣ ꜣ ( 7) LATIN CAPITAL LETTER EGYPTOLOGICAL ALEF
+    {0xA732, 0xA76E, 0xA76F}, // Ꜳ ꜳ (31) LATIN CAPITAL LETTER AA
+    {0xA779, 0xA77B, 0xA77C}, // Ꝺ ꝺ ( 2) LATIN CAPITAL LETTER INSULAR D
+    {0xA77D, 0xA77D, 0x1D79}, // Ᵹ ᵹ ( 1) LATIN CAPITAL LETTER INSULAR G
+    {0xA77E, 0xA786, 0xA787}, // Ꝿ ꝿ ( 5) LATIN CAPITAL LETTER TURNED INSULAR G
+    {0xA78B, 0xA78B, 0xA78C}, // Ꞌ ꞌ ( 1) LATIN CAPITAL LETTER SALTILLO
+    {0xA78D, 0xA78D, 0x0265}, // Ɥ ɥ ( 1) LATIN CAPITAL LETTER TURNED H
+    {0xA790, 0xA792, 0xA793}, // Ꞑ ꞑ ( 2) LATIN CAPITAL LETTER N WITH DESCENDER
+    {0xA796, 0xA7A8, 0xA7A9}, // Ꞗ ꞗ (10) LATIN CAPITAL LETTER B WITH FLOURISH
+    {0xA7AA, 0xA7AA, 0x0266}, // Ɦ ɦ ( 1) LATIN CAPITAL LETTER H WITH HOOK
+    {0xA7AB, 0xA7AB, 0x025C}, // Ɜ ɜ ( 1) LATIN CAPITAL LETTER REVERSED OPEN E
+    {0xA7AC, 0xA7AC, 0x0261}, // Ɡ ɡ ( 1) LATIN CAPITAL LETTER SCRIPT G
+    {0xA7AD, 0xA7AD, 0x026C}, // Ɬ ɬ ( 1) LATIN CAPITAL LETTER L WITH BELT
+    {0xA7AE, 0xA7AE, 0x026A}, // Ɪ ɪ ( 1) LATIN CAPITAL LETTER SMALL CAPITAL I
+    {0xA7B0, 0xA7B0, 0x029E}, // Ʞ ʞ ( 1) LATIN CAPITAL LETTER TURNED K
+    {0xA7B1, 0xA7B1, 0x0287}, // Ʇ ʇ ( 1) LATIN CAPITAL LETTER TURNED T
+    {0xA7B2, 0xA7B2, 0x029D}, // Ʝ ʝ ( 1) LATIN CAPITAL LETTER J WITH CROSSED-TAIL
+    {0xA7B3, 0xA7B3, 0xAB53}, // Ꭓ ꭓ ( 1) LATIN CAPITAL LETTER CHI
+    {0xA7B4, 0xA7C2, 0xA7C3}, // Ꞵ ꞵ ( 8) LATIN CAPITAL LETTER BETA
+    {0xA7C4, 0xA7C4, 0xA794}, // Ꞔ ꞔ ( 1) LATIN CAPITAL LETTER C WITH PALATAL HOOK
+    {0xA7C5, 0xA7C5, 0x0282}, // Ʂ ʂ ( 1) LATIN CAPITAL LETTER S WITH HOOK
+    {0xA7C6, 0xA7C6, 0x1D8E}, // Ᶎ ᶎ ( 1) LATIN CAPITAL LETTER Z WITH PALATAL HOOK
+    {0xA7C7, 0xA7C9, 0xA7CA}, // Ꟈ ꟈ ( 2) LATIN CAPITAL LETTER D WITH SHORT STROKE OVERLAY
+    {0xA7D0, 0xA7D0, 0xA7D1}, // Ꟑ ꟑ ( 1) LATIN CAPITAL LETTER CLOSED INSULAR G
+    {0xA7D6, 0xA7D8, 0xA7D9}, // Ꟗ ꟗ ( 2) LATIN CAPITAL LETTER MIDDLE SCOTS S
+    {0xA7F5, 0xA7F5, 0xA7F6}, // Ꟶ ꟶ ( 1) LATIN CAPITAL LETTER REVERSED HALF H
+    {0xAB70, 0xABBF, 0x13EF}, // ꭰ Ꭰ (80) CHEROKEE SMALL LETTER A
+    {0xFF21, 0xFF3A, 0xFF5A}, // Ａ ａ (26) FULLWIDTH LATIN CAPITAL LETTER A
+    {0x0130, 0x0130, 0x0069}, // İ i ( 1) LATIN CAPITAL LETTER I WITH DOT ABOVE
+    {0x01CD, 0x01DB, 0x01DC}, // Ǎ ǎ ( 8) LATIN CAPITAL LETTER A WITH CARON
+    {0x01F4, 0x01F4, 0x01F5}, // Ǵ ǵ ( 1) LATIN CAPITAL LETTER G WITH ACUTE
+    {0x13A0, 0x13EF, 0xABBF}, // Ꭰ ꭰ (80) CHEROKEE LETTER A
+    {0x13F0, 0x13F5, 0x13FD}, // Ᏸ ᏸ ( 6) CHEROKEE LETTER YE
+    {0x039C, 0x039C, 0x00B5}, // Μ µ ( 1) 
+    {0x0049, 0x0049, 0x0131}, // I ı ( 1) 
+    {0x0053, 0x0053, 0x017F}, // S ſ ( 1) 
+    {0x03A3, 0x03A3, 0x03C2}, // Σ ς ( 1) 
+    {0x0392, 0x0392, 0x03D0}, // Β ϐ ( 1) 
+    {0x0398, 0x0398, 0x03D1}, // Θ ϑ ( 1) 
+    {0x03A6, 0x03A6, 0x03D5}, // Φ ϕ ( 1) 
+    {0x03A0, 0x03A0, 0x03D6}, // Π ϖ ( 1) 
+    {0x039A, 0x039A, 0x03F0}, // Κ ϰ ( 1) 
+    {0x03A1, 0x03A1, 0x03F1}, // Ρ ϱ ( 1) 
+    {0x0395, 0x0395, 0x03F5}, // Ε ϵ ( 1) 
+    {0x0412, 0x0412, 0x1C80}, // В ᲀ ( 1) 
+    {0x0414, 0x0414, 0x1C81}, // Д ᲁ ( 1) 
+    {0x041E, 0x041E, 0x1C82}, // О ᲂ ( 1) 
+    {0x0421, 0x0422, 0x1C84}, // С ᲃ ( 2) 
+    {0x0422, 0x0422, 0x1C85}, // Т ᲅ ( 1) 
+    {0x042A, 0x042A, 0x1C86}, // Ъ ᲆ ( 1) 
+    {0x0462, 0x0462, 0x1C87}, // Ѣ ᲇ ( 1) 
+    {0xA64A, 0xA64A, 0x1C88}, // Ꙋ ᲈ ( 1) 
+    {0x1E60, 0x1E60, 0x1E9B}, // Ṡ ẛ ( 1) 
+    {0x0399, 0x0399, 0x1FBE}, // Ι ι ( 1) 
+}; // 218
+
+enum { casefold_len = 192 };
+
+static uint8_t upcase_ind[162] = {
+    0, 2, 3, 4, 192, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+    21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+    41, 43, 45, 193, 47, 48, 194, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62,
+    63, 65, 66, 67, 68, 69, 70, 71, 72, 73, 75, 80, 83, 85, 86, 87, 88, 89, 90, 91,
+    92, 93, 94, 95, 96, 97, 98, 99, 195, 196, 109, 110, 111, 113, 114, 115, 116, 117, 118, 119,
+    120, 121, 125, 126, 129, 131, 132, 133, 134, 135, 136, 137, 139, 140, 141, 142, 144, 146, 147, 148,
+    149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168,
+    169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188,
+    189, 191,
+};
+
+static uint8_t lowcase_ind[184] = {
+    0, 197, 113, 2, 3, 8, 4, 198, 5, 6, 7, 9, 199, 60, 12, 14, 16, 20, 50, 25,
+    57, 53, 29, 31, 33, 35, 37, 39, 40, 51, 41, 43, 45, 193, 17, 47, 48, 194, 52, 54,
+    56, 158, 59, 63, 154, 152, 155, 11, 13, 15, 18, 19, 174, 21, 175, 22, 170, 173, 24, 23,
+    177, 148, 176, 26, 153, 27, 28, 150, 30, 184, 32, 179, 34, 61, 36, 62, 38, 180, 178, 65,
+    66, 88, 68, 69, 72, 200, 73, 70, 71, 201, 202, 203, 204, 75, 80, 205, 206, 86, 67, 207,
+    85, 87, 90, 89, 91, 92, 94, 93, 95, 96, 109, 110, 196, 208, 209, 210, 211, 212, 213, 214,
+    215, 167, 149, 185, 111, 216, 114, 115, 116, 117, 118, 119, 120, 121, 126, 129, 132, 136, 134, 137,
+    122, 123, 124, 125, 127, 217, 130, 131, 133, 135, 138, 142, 144, 146, 147, 55, 58, 151, 156, 157,
+    159, 160, 161, 97, 98, 99, 162, 163, 164, 165, 166, 168, 169, 171, 183, 172, 182, 186, 187, 188,
+    189, 181, 195, 191,
+};
+// ### END_FILE_INCLUDE: utf8_tab.c
+
+int cutf8_encode(char *out, uint32_t c) {
+    if (c < 0x80U) {
+        out[0] = (char) c;
+        return 1;
+    } else if (c < 0x0800U) {
+        out[0] = (char) ((c>>6  & 0x1F) | 0xC0);
+        out[1] = (char) ((c     & 0x3F) | 0x80);
+        return 2;
+    } else if (c < 0x010000U) {
+        if ((c < 0xD800U) | (c >= 0xE000U)) {
+            out[0] = (char) ((c>>12 & 0x0F) | 0xE0);
+            out[1] = (char) ((c>>6  & 0x3F) | 0x80);
+            out[2] = (char) ((c     & 0x3F) | 0x80);
+            return 3;
+        }
+    } else if (c < 0x110000U) {
+        out[0] = (char) ((c>>18 & 0x07) | 0xF0);
+        out[1] = (char) ((c>>12 & 0x3F) | 0x80);
+        out[2] = (char) ((c>>6  & 0x3F) | 0x80);
+        out[3] = (char) ((c     & 0x3F) | 0x80);
+        return 4;
+    }
+    return 0;
+}
+
+bool cutf8_valid(const char* s) {
+    cutf8_decode_t d = {0};
+    while ((cutf8_decode(&d, (uint8_t)*s) != cutf8_REJECT) & (*s != '\0'))
+        ++s;
+    return d.state == cutf8_ACCEPT;
+}
+
+bool cutf8_valid_n(const char* s, isize_t nbytes) {
+    cutf8_decode_t d = {0};
+    while (nbytes-- != 0 && ((cutf8_decode(&d, (uint8_t)*s) != cutf8_REJECT) & (*s != '\0')))
+        ++s;
+    return d.state == cutf8_ACCEPT;
+}
+
+uint32_t cutf8_casefold(uint32_t c) {
+    #define _at_fold(idx) &casemappings[idx].c2
+    int i;
+    c_lowerbound(uint32_t, c, _at_fold, c_default_less, casefold_len, &i);
+    if (i < casefold_len && casemappings[i].c1 <= c) {
+        const struct CaseMapping entry = casemappings[i];
+        int d = entry.m2 - entry.c2;
+        if (d == 1) return c + ((entry.c2 & 1U) == (c & 1U));
+        return (uint32_t)((int)c + d);
+    }
+    return c;
+}
+
+uint32_t cutf8_tolower(uint32_t c) {
+    #define _at_upper(idx) &casemappings[upcase_ind[idx]].c2
+    int i, n = c_countof(upcase_ind);
+    c_lowerbound(uint32_t, c, _at_upper, c_default_less, n, &i);
+    if (i < n) {
+        const struct CaseMapping entry = casemappings[upcase_ind[i]];
+        if (entry.c1 <= c) {
+            int d = entry.m2 - entry.c2;
+            if (d == 1) return c + ((entry.c2 & 1U) == (c & 1U));
+            return (uint32_t)((int)c + d);
+        }
+    }
+    return c;
+}
+
+uint32_t cutf8_toupper(uint32_t c) {
+    #define _at_lower(idx) &casemappings[lowcase_ind[idx]].m2
+    int i, n = c_countof(lowcase_ind);
+    c_lowerbound(uint32_t, c, _at_lower, c_default_less, n, &i);
+    if (i < n) {
+        const struct CaseMapping entry = casemappings[lowcase_ind[i]];
+        int d = entry.m2 - entry.c2;
+        if (entry.c1 + (uint32_t)d <= c) {
+            if (d == 1) return c - ((entry.m2 & 1U) == (c & 1U));
+            return (uint32_t)((int)c - d);
+        }
+    }
+    return c;
+}
+
+int cutf8_icmp_sv(const csview s1, const csview s2) {
+    cutf8_decode_t d1 = {0}, d2 = {0};
+    const char *e1 = s1.buf + s1.size, *e2 = s2.buf + s2.size;
+    isize_t j1 = 0, j2 = 0;
+    while ((j1 < s1.size) & (j2 < s2.size)) {
+        if (s2.buf[j2] == '\0') return s1.buf[j1];
+
+        j1 += cutf8_decode_codepoint(&d1, s1.buf + j1, e1);
+        j2 += cutf8_decode_codepoint(&d2, s2.buf + j2, e2);
+
+        int32_t c = (int32_t)cutf8_casefold(d1.codep) - (int32_t)cutf8_casefold(d2.codep);
+        if (c != 0) return (int)c;
+    }
+    return (int)(s1.size - s2.size);
+}
+
+#endif // STC_UTF8_PRV_C_INCLUDED
+// ### END_FILE_INCLUDE: utf8_prv.c
+#endif
+// ### END_FILE_INCLUDE: csviewz.h
+
+STC_EXTERN csview_iter  csview_advance(csview_iter it, isize_t u8pos);
+STC_EXTERN csview       csview_subview_pro(csview sv, isize_t pos, isize_t n);
+STC_EXTERN csview       csview_split(csview sv, const char* separator, isize_t* pos);
+STC_EXTERN csview       csview_strtok(csview sv, const char* delimiters, isize_t* pos);
+STC_EXTERN csview       csview_u8_subview(csview sv, isize_t u8pos, isize_t u8len);
+STC_EXTERN csview       csview_u8_tail(csview sv, isize_t u8len);
+STC_EXTERN csview_iter  csview_u8_at(csview sv, isize_t u8pos);
+
+#define             csview_init() c_sv_1("")
+STC_INLINE csview   csview_from(const char* str)
+    { return c_literal(csview){str, c_strlen(str)}; }
+STC_INLINE csview   csview_from_n(const char* str, isize_t n)
+    { return c_literal(csview){str, n}; }
+
+STC_INLINE void     csview_clear(csview* self) { *self = csview_init(); }
+STC_INLINE isize_t  csview_size(csview sv) { return sv.size; }
+STC_INLINE bool     csview_is_empty(csview sv) { return sv.size == 0; }
+
+STC_INLINE bool csview_equals_sv(csview sv1, csview sv2)
+    { return sv1.size == sv2.size && !c_memcmp(sv1.buf, sv2.buf, sv1.size); }
+
+STC_INLINE bool csview_equals(csview sv, const char* str)
+    { return csview_equals_sv(sv, c_sv_2(str, c_strlen(str))); }
+
+STC_INLINE size_t csview_hash(const csview *self)
+    { return c_basehash_n(self->buf, self->size); }
+
+STC_INLINE isize_t csview_find_sv(csview sv, csview search) {
+    char* res = c_strnstrn(sv.buf, sv.size, search.buf, search.size);
+    return res ? (res - sv.buf) : c_NPOS;
+}
+
+STC_INLINE isize_t csview_find(csview sv, const char* str)
+    { return csview_find_sv(sv, c_sv_2(str, c_strlen(str))); }
+
+STC_INLINE bool csview_contains(csview sv, const char* str)
+    { return csview_find(sv, str) != c_NPOS; }
+
+STC_INLINE bool csview_starts_with(csview sv, const char* str) {
+    isize_t n = c_strlen(str);
+    return n <= sv.size && !c_memcmp(sv.buf, str, n);
+}
+
+STC_INLINE bool csview_ends_with(csview sv, const char* str) {
+    isize_t n = c_strlen(str);
+    return n <= sv.size && !c_memcmp(sv.buf + sv.size - n, str, n);
+}
+
+STC_INLINE csview csview_subview(csview sv, isize_t pos, isize_t len) {
+    c_assert(((size_t)pos <= (size_t)sv.size) & (len >= 0));
+    if (pos + len > sv.size) len = sv.size - pos;
+    sv.buf += pos, sv.size = len;
+    return sv;
+}
+
+STC_INLINE csview csview_slice(csview sv, isize_t p1, isize_t p2) {
+    c_assert(((size_t)p1 <= (size_t)p2) & ((size_t)p1 <= (size_t)sv.size));
+    if (p2 > sv.size) p2 = sv.size;
+    sv.buf += p1, sv.size = p2 - p1;
+    return sv;
+}
+
+STC_INLINE csview csview_trim_start(csview sv)
+    { while (sv.size && *sv.buf <= ' ') ++sv.buf, --sv.size; return sv; }
+
+STC_INLINE csview csview_trim_end(csview sv)
+    { while (sv.size && sv.buf[sv.size - 1] <= ' ') --sv.size; return sv; }
+
+STC_INLINE csview csview_trim(csview sv)
+    { return csview_trim_end(csview_trim_start(sv)); }
+
+STC_INLINE csview csview_tail(csview sv, isize_t len)
+    { return csview_subview(sv, sv.size - len, len); }
+
+/* utf8 iterator */
+STC_INLINE csview_iter csview_begin(const csview* self) {
+    csview_iter it = {.u8={{self->buf}, self->buf + self->size}};
+    if (it.ref == it.u8.end) it.ref = NULL;
+    else it.u8.chr.size = cutf8_decode_codepoint(&it.u8.dec, it.ref, it.u8.end);
+    return it;
+}
+
+STC_INLINE csview_iter csview_end(const csview* self) {
+    (void)self; csview_iter it = {0}; return it;
+}
+
+STC_INLINE void csview_next(csview_iter* it) {
+    it->ref += it->chr.size;
+    if (it->ref == it->u8.end) it->ref = NULL;
+    else it->chr.size = cutf8_decode_codepoint(&it->u8.dec, it->ref, it->u8.end);
+}
+
+STC_INLINE uint32_t csview_codepoint(const csview_iter* it)
+    { return it->u8.dec.codep; }
+
+
+/* utf8 */
+STC_INLINE csview csview_u8_from(const char* str, isize_t u8pos, isize_t u8len)
+    { return cutf8_subview(str, u8pos, u8len); }
+
+STC_INLINE isize_t csview_u8_size(csview sv)
+    { return cutf8_count_n(sv.buf, sv.size); }
+
+STC_INLINE bool csview_u8_valid(csview sv) // requires linking with utf8 symbols
+    { return cutf8_valid_n(sv.buf, sv.size); }
+
+#define c_each_split_sv(it, separator, sv) \
+    struct { csview input, token; const char* sep; isize_t pos; } \
+    it = {.input=sv, .sep=separator} ; \
+    it.pos < it.input.size && (it.token = csview_split(it.input, it.sep, &it.pos), 1) ;
+
+#define c_each_strtok_sv(it, delimiters, sv) \
+    struct { csview input, token; const char* delims; isize_t pos; } \
+    it = {.input=sv, .delims=delimiters} ; \
+    it.pos < it.input.size && (it.token = csview_strtok(it.input, it.delims, &it.pos), 1) ;
+
+#define c_each_split(it, separator, str) \
+    c_each_split_sv(it, separator, csview_from(str))
+
+#define c_each_strtok(it, delimiters, str) \
+    c_each_strtok_sv(it, delimiters, csview_from(str))
+
+
+/* ---- Container helper functions ---- */
+
+STC_INLINE int csview_cmp(const csview* x, const csview* y) {
+    isize_t n = x->size < y->size ? x->size : y->size;
+    int c = c_memcmp(x->buf, y->buf, n);
+    return c ? c : c_default_cmp(&x->size, &y->size);
+}
+
+STC_INLINE bool csview_eq(const csview* x, const csview* y)
+    { return x->size == y->size && !c_memcmp(x->buf, y->buf, x->size); }
+
+/* ---- case insensitive ---- */
+
+STC_INLINE bool csview_iequals_sv(csview sv1, csview sv2)
+    { return sv1.size == sv2.size && !cutf8_icmp_sv(sv1, sv2); }
+
+STC_INLINE bool csview_iequals(csview sv, const char* str)
+    { return csview_iequals_sv(sv, c_sv(str, c_strlen(str))); }
+
+STC_INLINE bool csview_ieq(const csview* x, const csview* y)
+    { return csview_iequals_sv(*x, *y); }
+
+STC_INLINE int csview_icmp(const csview* x, const csview* y)
+    { return cutf8_icmp_sv(*x, *y); }
+
+STC_INLINE bool csview_istarts_with(csview sv, const char* str) {
+    isize_t n = c_strlen(str);
+    return n <= sv.size && !cutf8_icmp_sv(sv, c_sv(str, n));
+}
+
+STC_INLINE bool csview_iends_with(csview sv, const char* str) {
+    isize_t n = c_strlen(str);
+    return n <= sv.size && !cutf8_icmp(sv.buf + sv.size - n, str);
+}
+#endif // STC_CSVIEW_H_INCLUDED
+
+/* -------------------------- IMPLEMENTATION ------------------------- */
+#if (defined STC_IMPLEMENT || defined i_implement) && !defined STC_CSVIEW_IMPLEMENT
+#define STC_CSVIEW_IMPLEMENT
+
+csview_iter csview_advance(csview_iter it, isize_t u8pos) {
+    int inc = 1;
+    if (u8pos < 0) u8pos = -u8pos, inc = -1;
+    while (u8pos && it.ref != it.u8.end)
+        u8pos -= (*(it.ref += inc) & 0xC0) != 0x80;
+    if (it.ref == it.u8.end) it.ref = NULL;
+    else it.chr.size = cutf8_decode_codepoint(&it.u8.dec, it.ref, it.u8.end);
+    return it;
+}
+
+csview csview_subview_pro(csview sv, isize_t pos, isize_t len) {
+    if (pos < 0) {
+        pos += sv.size;
+        if (pos < 0) pos = 0;
+    }
+    if (pos > sv.size) pos = sv.size;
+    if (pos + len > sv.size) len = sv.size - pos;
+    sv.buf += pos, sv.size = len;
+    return sv;
+}
+
+csview csview_split(csview sv, const char* sep, isize_t* pos) {
+    if (*pos >= sv.size) return c_sv("");
+    isize_t sep_size = c_strlen(sep);
+    csview in = {sv.buf + *pos, sv.size - *pos};
+    const char* res = c_strnstrn(in.buf, in.size, sep, sep_size);
+    if (res) { in.size = res - in.buf; *pos += in.size + sep_size; }
+    else *pos = c_NPOS;
+    return in;
+}
+
+csview csview_strtok(csview sv, const char* delims, isize_t* pos) {
+    if (*pos >= sv.size) return c_sv("");
+    cutf8_decode_t dec = {0};
+    csview in = {sv.buf + *pos, sv.size - *pos};
+    for (c_each(i, csview, in)) {
+        for (const char *m = delims; *m; ++m) {
+            if (cutf8_decode(&dec, (uint8_t)*m) == cutf8_ACCEPT && i.u8.dec.codep == dec.codep) {
+                in.size = i.chr.buf - in.buf;
+                *pos += in.size + i.chr.size;
+                return in;
+            }
+        }
+    }
+    *pos = c_NPOS;
+    return in;
+}
+
+csview csview_u8_subview(csview sv, isize_t u8pos, isize_t u8len) {
+    const char* s, *end = &sv.buf[sv.size];
+    while ((u8pos > 0) & (sv.buf != end))
+        u8pos -= (*++sv.buf & 0xC0) != 0x80;
+    s = sv.buf;
+    while ((u8len > 0) & (s != end))
+        u8len -= (*++s & 0xC0) != 0x80;
+    sv.size = s - sv.buf; return sv;
+}
+
+csview csview_u8_tail(csview sv, isize_t u8len) {
+    const char* p = &sv.buf[sv.size];
+    while (u8len && p != sv.buf)
+        u8len -= (*--p & 0xC0) != 0x80;
+    sv.size -= p - sv.buf, sv.buf = p;
+    return sv;
+}
+
+csview_iter csview_u8_at(csview sv, isize_t u8pos) {
+    csview_iter it = {.u8={sv, sv.buf + sv.size}};
+    while ((u8pos > 0) & (it.ref != it.u8.end))
+        u8pos -= (*++it.ref & 0xC0) != 0x80;
+    c_assert(u8pos == 0);
+    it.chr.size = cutf8_decode_codepoint(&it.u8.dec, it.ref, it.u8.end);
+    return it;
+}
+#endif // IMPLEMENT
+
+#if defined i_import
+#endif
+#undef i_header
+#undef i_implement
+#undef i_import
+// ### END_FILE_INCLUDE: csview.h
+
