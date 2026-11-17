@@ -2813,6 +2813,10 @@ void _hs_add_read_event(http_request_t *request) {
 }
 
 void hs_request_begin_read(http_request_t *request) {
+  request->buffer.length = 0;
+  request->buffer.index = 0;
+  request->tokens.size = 0;
+  hsh_parser_init(&request->parser);
   request->state = HTTP_SESSION_READ;
   _hs_add_read_event(request);
   _hs_read_socket_and_handle_return_code(request);

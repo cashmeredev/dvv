@@ -65,7 +65,7 @@ void handle_request(struct http_request_s *request)
     }
 
   // TODO: make user handler generic
-  if (matches(method, "GET") && matches(target, "/@cashmere"))
+  else if (matches(method, "GET") && matches(target, "/@cashmere"))
     {
       const char *projects[] = {"Project 1", "Project 2"};
       cstr user = render_user( "cashmere", "Hello, Sailor!", projects, 2);
