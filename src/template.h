@@ -14,7 +14,7 @@ struct Page {
   length:     how many bytes that snippet has
   expression: the value that gets filled in at a %...% spot
 */
-#define write(buffer, snippet, length) cstr_append_n(&buffer, snippet, length)
+#define write(buffer, snippet, length) cstr_append_n(&(buffer), (snippet), (length))
 #define INT(expression) cstr_append_fmt(&OUT, "%d", expression);
 #define STR(expression) cstr_append(&OUT, expression);
 

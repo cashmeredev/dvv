@@ -11,6 +11,11 @@
 #include <stdbool.h>
 #include "sign.h"
 
+typedef enum {
+  HTTP_OK        = 200,
+  HTTP_NOT_FOUND = 404,
+} http_status;
+
 // NOTE: this function is a helper to print private and public key.
 // FIXME: remove or disable when dvv is used in prod
 static void print_hex(const char *label, const uint8_t *bytes, size_t length)
@@ -21,7 +26,9 @@ static void print_hex(const char *label, const uint8_t *bytes, size_t length)
       printf("%02x", bytes[index]);
     }
   printf("\n");
-  fflush(stdout);
+  if (fflush(stdout) != 0) {
+    return exit(1);
+  }
 }
 
 static void respond(struct http_request_s *request, int status, cstr page)
@@ -47,7 +54,7 @@ void handle_request(struct http_request_s *request)
   if (csview_equals(method, "GET") && csview_equals(target, "/"))
     {
       cstr index = render_index("Don't vouch, VERIFY!");
-      respond(request, 200, index);
+      respond(request, HTTP_OK, index);
     }
 
   // TODO: make user handler generic
@@ -55,7 +62,7 @@ void handle_request(struct http_request_s *request)
     {
       const char *projects[] = {"Project 1", "Project 2"};
       cstr user = render_user( "cashmere", "Hello, Sailor!", projects, 2);
-      respond(request, 200, user);
+      respond(request, HTTP_OK, user);
 
       // FIXME: change to secure way to generate and store secret/public key
       uint8_t secret_key[64];
@@ -63,7 +70,9 @@ void handle_request(struct http_request_s *request)
       if (!generate_keys(secret_key, public_key))
         {
           printf("failed to generate keys\n");
-          fflush(stdout);
+          if (fflush(stdout) != 0) {
+            return exit(1);
+          }
         }
       print_hex("public_key", public_key, sizeof(public_key));
       print_hex("secret_key", secret_key, sizeof(secret_key));
@@ -71,15 +80,17 @@ void handle_request(struct http_request_s *request)
   else
     {
       /* respond with 404 not found for any other page */
-      cstr not_found = render_error(404);
-      respond(request, 404, not_found);
+      cstr not_found = render_error(HTTP_NOT_FOUND);
+      respond(request, HTTP_NOT_FOUND, not_found);
     }
 
 }
 
+const int PORT = 8000;
+
 int main(void)
 {
-  struct http_server_s *server = http_server_init(8000, handle_request);
+  struct http_server_s *server = http_server_init(PORT, handle_request);
   http_server_listen(server);
   return 0;
 }
