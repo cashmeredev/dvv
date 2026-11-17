@@ -14,32 +14,31 @@ struct Page {
   length:     how many bytes that snippet has
   expression: the value that gets filled in at a %...% spot
 */
-#define write(buffer, snippet, length) fwrite(snippet, 1, length, buffer)
-#define INT(expression) fprintf(OUT, "%d", expression);
-#define STR(expression) fputs(expression, OUT);
+#define write(buffer, snippet, length) cstr_append_n(&buffer, snippet, length)
+#define INT(expression) cstr_append_fmt(&OUT, "%d", expression);
+#define STR(expression) cstr_append(&OUT, expression);
 
 #define TEMPLATE_BEGIN \
-struct Page page = {0}; \
-FILE *OUT = open_memstream(&page.body, &page.size);
-#define TEMPLATE_END \
-fclose(OUT); \
-  return page;
+cstr OUT = cstr_init();
 
-static struct Page render_error(int code)
+#define TEMPLATE_END   \
+  return OUT;
+
+static cstr render_error(int code)
 {
   TEMPLATE_BEGIN
 #include "error_page_template.h"
   TEMPLATE_END
 }
 
-static struct Page render_index(const char *title)
+static cstr render_index(const char *title)
 {
   TEMPLATE_BEGIN
 #include "index_template.h"
   TEMPLATE_END
 }
 
-static struct Page render_user(
+static cstr render_user(
   const char *username,
   const char *description,
   const char **projects,
