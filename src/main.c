@@ -24,22 +24,6 @@ static void print_hex(const char *label, const uint8_t *bytes, size_t length)
   fflush(stdout);
 }
 
-static bool matches(struct http_string_s received, const char *expected)
-{
-  size_t expected_length = strlen(expected);
-
-  if ((size_t)received.len != expected_length)
-    {
-      return false;
-    }
-
-  if(memcmp(received.buf, expected, expected_length) != 0)
-    {
-      return false;
-    }
-  return true;
-}
-
 static void respond(struct http_request_s *request, int status, cstr page)
 {
   struct http_response_s *response = http_response_init();
@@ -55,17 +39,19 @@ void handle_request(struct http_request_s *request)
 {
 
   /* get http method and target */
-  struct http_string_s method = http_request_method(request);
-  struct http_string_s target = http_request_target(request);
+  struct http_string_s raw_method = http_request_method(request);
+  struct http_string_s raw_target = http_request_target(request);
+  csview method = c_sv(raw_method.buf, raw_method.len);
+  csview target = c_sv(raw_target.buf, raw_target.len);
 
-  if (matches(method, "GET") && matches(target, "/"))
+  if (csview_equals(method, "GET") && csview_equals(target, "/"))
     {
       cstr index = render_index("Don't vouch, VERIFY!");
       respond(request, 200, index);
     }
 
   // TODO: make user handler generic
-  else if (matches(method, "GET") && matches(target, "/@cashmere"))
+  else if (csview_equals(method, "GET") && csview_equals(target, "/@cashmere"))
     {
       const char *projects[] = {"Project 1", "Project 2"};
       cstr user = render_user( "cashmere", "Hello, Sailor!", projects, 2);
