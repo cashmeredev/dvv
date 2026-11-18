@@ -10,6 +10,7 @@
 #include "template.h"
 #include <stdbool.h>
 #include "sign.h"
+#include "entries.h"
 
 typedef enum {
   HTTP_OK        = 200,
@@ -27,7 +28,7 @@ static void print_hex(const char *label, const uint8_t *bytes, size_t length)
     }
   printf("\n");
   if (fflush(stdout) != 0) {
-    return exit(1);
+    printf("ERROR: could not flush to stdout");
   }
 }
 
@@ -69,9 +70,8 @@ void handle_request(struct http_request_s *request)
       uint8_t public_key[32];
       if (!generate_keys(secret_key, public_key))
         {
-          printf("failed to generate keys\n");
           if (fflush(stdout) != 0) {
-            return exit(1);
+            printf("failed to generate keys\n");
           }
         }
       print_hex("public_key", public_key, sizeof(public_key));
@@ -90,6 +90,12 @@ const int PORT = 8000;
 
 int main(void)
 {
+  bool conf_file = path_exists("./data/test.conf");
+  if (conf_file == true) {
+    printf("ERROR: conf file does not exist. please create one.\n");
+    fflush(stdout);
+    return 1;
+  }
   struct http_server_s *server = http_server_init(PORT, handle_request);
   http_server_listen(server);
   return 0;
