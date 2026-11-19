@@ -1,0 +1,17 @@
+[server]
+port = 8000
+
+[[users]]
+name        = "cashmere"
+description = "Hello, Sailor!"
+public_key  = "3b6a27bc...59da29"   # 32 bytes as hex (64 chars)
+
+[[users.projects]]
+name      = "Project 1"
+url       = "https://example.com/project-1"
+signature = "..."                   # 64 bytes as hex (128 chars)
+
+[[users.projects]]
+name      = "Project 2"
+url       = "https://example.com/project-2"
+signature = "..."

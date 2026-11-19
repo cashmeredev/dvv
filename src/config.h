@@ -1,8 +1,8 @@
 #include <sys/stat.h>
 
-bool path_exists(const char *path) {
+bool config_path_exists(const char *path) {
     struct stat buf;
-    if (stat(path, &buf) == 1) {
+    if (stat(path, &buf) == -1) {
       return false;
     }
     else {
