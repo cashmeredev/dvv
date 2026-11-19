@@ -1,4 +1,5 @@
 #include <sys/stat.h>
+#include <stdio.h>
 
 bool config_path_exists(const char *path) {
     struct stat buf;
@@ -8,4 +9,10 @@ bool config_path_exists(const char *path) {
     else {
       return true;
     }
+}
+
+cstr config_read_file(const char *path)
+{
+  cstr config = cstr_from_file(path);
+  return config;
 }

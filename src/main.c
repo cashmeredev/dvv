@@ -10,7 +10,8 @@
 #include "template.h"
 #include <stdbool.h>
 #include "sign.h"
-#include "entries.h"
+#include "config.h"
+#include "toml-c.h"
 
 typedef enum {
   HTTP_OK        = 200,
@@ -87,15 +88,19 @@ void handle_request(struct http_request_s *request)
 }
 
 const int PORT = 8000;
+#define CONFIG_PATH "./data/config.toml"
 
 int main(void)
 {
-  bool conf_file = path_exists("./data/test.conf");
-  if (conf_file == true) {
+  bool toml_file_exists = config_path_exists(CONFIG_PATH);
+  if (toml_file_exists == false) {
     printf("ERROR: conf file does not exist. please create one.\n");
     fflush(stdout);
     return 1;
   }
+  cstr config = config_read_file(CONFIG_PATH);
+
+  printf("INFO: config content:\n%s", cstr_str(&config));
   struct http_server_s *server = http_server_init(PORT, handle_request);
   http_server_listen(server);
   return 0;
