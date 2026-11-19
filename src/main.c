@@ -98,9 +98,18 @@ int main(void)
     fflush(stdout);
     return 1;
   }
-  cstr config = config_read_file(CONFIG_PATH);
+  cstr cstr_config = config_read_file(CONFIG_PATH);
+  char* cstr_conf = cstr_data(&cstr_config);
+  char errbuf[200];
+  toml_table_t *config = toml_parse(cstr_conf, errbuf, sizeof(errbuf));
 
-  printf("INFO: config content:\n%s", cstr_str(&config));
+  for (int i = 0; i < toml_table_len(config); i++)
+    {
+      int keylen;
+      const char *key = toml_table_key(config, i, &keylen);
+      printf("INFO: config keys:\n%.*s\n", keylen, key);
+    }
+  toml_free(config);
   struct http_server_s *server = http_server_init(PORT, handle_request);
   http_server_listen(server);
   return 0;
